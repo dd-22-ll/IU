@@ -157,6 +157,20 @@ typedef struct
 void UI_Init(osMessageQId *pvMsgQId);
 uint32_t ulUI_BufSetup(uint32_t ulBUF_StartAddr);
 void UI_PlugIn(void);
+//------------------------------------------------------------------------------
+
+void UI_DrawString(const char *str, uint16_t startX, uint16_t startY);
+void UI_Drawbox(void);
+//------------------------------------------------------------------------------
+void MoveboxDown(void);
+void MoveboxUp(void);
+void EnterKeyHandler(void);
+//------------------------------------------------------------------------------
+void UI_RefreshScreen(void);
+void UI_ShowMenuKey(void);
+void UI_ShowMenu(void);
+
+//------------------------------------------------------------------------------
 osMessageQId *pUI_GetEventQueueHandle(void);
 void UI_StopUpdateThread(void);
 void UI_StartUpdateThread(void);
