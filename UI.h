@@ -160,15 +160,28 @@ void UI_PlugIn(void);
 //------------------------------------------------------------------------------
 
 void UI_DrawString(const char *str, uint16_t startX, uint16_t startY);
+void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY);
+void UI_DrawString23(const char *str, uint16_t startX, uint16_t startY);
 void UI_Drawbox(void);
+void UI_Drawhalfbox(void);
+void UI_DrawWhiteSquare(uint16_t x, uint16_t y);
+void UI_DrawHalfWhiteSquare(uint16_t x, uint16_t y);
+void MenuBackground(void);
 //------------------------------------------------------------------------------
 void MoveboxDown(void);
 void MoveboxUp(void);
 void EnterKeyHandler(void);
+void MenuExitHandler(void);
 //------------------------------------------------------------------------------
 void UI_RefreshScreen(void);
 void UI_ShowMenuKey(void);
 void UI_ShowMenu(void);
+void UI_ShowKeyLock(void);
+void UI_ShowZoom(void);
+void UI_ShowLanguage(void);
+void UI_ShowSetting(void);
+void UI_ShowPairUnits(void);
+void UI_Info(void);
 
 //------------------------------------------------------------------------------
 osMessageQId *pUI_GetEventQueueHandle(void);
