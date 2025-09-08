@@ -707,7 +707,12 @@ typedef struct
 		UI_WarnNote_t 		tWarnNote;
 		uint8_t				ubWarnUpdateCnt;
 	}WarnIcon;
-	uint8_t					ubReserved[221];
+	
+	uint8_t					ubVibration;		//zhu
+	uint8_t					ubZoomLevel;
+	uint8_t					ubLanguage;
+	uint8_t					ubMicroSensitivity;	
+	uint8_t					ubReserved[217];		//reduce appropriately after change, original: 221
 }UI_PUSetting_t;
 
 typedef struct
@@ -830,6 +835,7 @@ typedef struct
 	void (*pvAction)(UI_CamNum_t, void *);
 }UI_SettingFuncPtr_t;
 
+extern UI_PUSetting_t tUI_PuSetting;
 void UI_PowerKey(void);
 void UI_MenuKey(void);
 void UI_UpArrowKey(void);
