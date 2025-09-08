@@ -16,11 +16,15 @@
 	\copyright	Copyright(C) 2021 SONiX Technology Co., Ltd. All rights reserved.
 */
 //------------------------------------------------------------------------------
+#include <stdio.h>
+#include <string.h>
 #include "UI.h"
 #include "APP_HS.h"
 #include "LCD.h"
 #include "OSD.h"
 #include "BUF.h"
+#include "SF_API.h"
+
 
 #ifdef VBM_PU
 #include "UI_VBMPU.h"
@@ -28,6 +32,10 @@
 #ifdef VBM_BU
 #include "UI_VBMBU.h"
 #endif
+
+#define MENU_LEVEL_SLEEP_TIMER 7
+#define USER_SETTINGS_FLASH_ADDR 0xFFA000
+
 osThreadId osUI_ThreadId;
 osMessageQId UI_EventQueue;
 osMessageQId *pAPP_MessageQH;
@@ -37,8 +45,6 @@ static uint16_t g_rectangle_x = 40; // box X
 static uint16_t g_rectangle_y = 110; // box Y
 static uint8_t g_is_menu_visible = 1; //0 not visible
 static uint8_t g_current_menu_level = 0; //0 mainmenu, 1,2,3 submenu
-static uint8_t g_current_language = 0; //current selection language
-//static uint8_t g_language_cursor_pos = 0;
 static uint8_t g_current_menu_index = 0; // menu index
 // Menu(Level 0)
 const uint16_t MAIN_MENU_Y_POS[] = {110, 150, 190, 230, 270, 310, 350};
@@ -48,7 +54,7 @@ const uint16_t KEYLOCK_MENU_Y_POS[] = {110, 150, 190};
 const uint8_t KEYLOCK_MENU_ITEM_COUNT = sizeof(KEYLOCK_MENU_Y_POS) / sizeof(uint16_t);
 // Zoom(Level 2)
 const uint16_t ZOOM_MENU_Y_POS[] = {110, 150};
-const uint8_t ZOOM_MENU_ITEM_COUNT = sizeof(DISPLAY_SETTINGS_MENU_Y_POS) / sizeof(uint16_t);
+const uint8_t ZOOM_MENU_ITEM_COUNT = sizeof(ZOOM_MENU_Y_POS) / sizeof(uint16_t);
 // Settings(Level 4)
 const uint16_t SETTINGS_MENU_Y_POS[] = {110, 150, 190, 230, 270, 310, 350, 390};
 const uint8_t SETTINGS_MENU_ITEM_COUNT = sizeof(SETTINGS_MENU_Y_POS) / sizeof(uint16_t);
@@ -56,8 +62,22 @@ const uint8_t SETTINGS_MENU_ITEM_COUNT = sizeof(SETTINGS_MENU_Y_POS) / sizeof(ui
 const uint16_t PAIRUNITS_MENU_Y_POS[] = {110, 150, 190, 230};
 const uint8_t PAIRUNITS_MENU_ITEM_COUNT = sizeof(PAIRUNITS_MENU_Y_POS) / sizeof(uint16_t);
 // Sleep Timer(Level 7)
-const uint16_t SLEEPTIMER_MENU_Y_POS[] = {110, 150};
-const uint8_t SLEEPTIMER_MENU_ITEM_COUNT = sizeof(SLEEPTIMER_MENU_Y_POS) / sizeof(uint16_t);
+static uint16_t SLEEPTIMER_MENU_Y_POS[] = {110, 150, 190, 230};
+static uint8_t SLEEPTIMER_MENU_ITEM_COUNT = sizeof(SLEEPTIMER_MENU_Y_POS) / sizeof(uint16_t);
+
+// Save
+static uint8_t g_settings_changed = 0;
+
+typedef struct {
+    uint32_t magic_number; 
+    uint8_t sensitivity;
+    uint8_t volume;
+    uint8_t zoom_level;
+    uint8_t language;
+} UserSettings_t;
+
+UserSettings_t g_user_settings;
+
 // Language dot
 typedef struct {
     uint16_t x;
@@ -65,30 +85,43 @@ typedef struct {
 } Point;
 
 const Point LANGUAGE_MENU_POS[] = {
-    {140, 130}, // 0: ENGLISH
-    {140, 170}, // 1: DANSK
-    {140, 210}, // 2: SUOMI
-    {140, 250}, // 3: FRANCAIS
-    {440, 130}, // 4: NORSK
-    {440, 170}, // 5: SVENSKA
-    {440, 210}, // 6: DEUTCH
-    {440, 250}, // 7: NEDERLANDS
-    {90,  310}  // 8: EXIT
+    {40, 110}, // 0: ENGLISH
+    {40, 150}, // 1: DANSK
+    {40, 190}, // 2: SUOMI
+    {40, 230}, // 3: FRANCAIS
+    {320, 110}, // 4: NORSK
+    {320, 150}, // 5: SVENSKA
+    {320, 190}, // 6: DEUTCH
+    {320, 230}, // 7: NEDERLANDS
+    {40,  372}  // 8: EXIT
 };
 const uint8_t LANGUAGE_MENU_ITEM_COUNT = sizeof(LANGUAGE_MENU_POS) / sizeof(Point);
 
-// --- SETTINGS STATE VARIABLES---
-static uint8_t g_edit_mode = 0;  //0: navigation, 1: edit
-//Stores SETTINGS menu items
-static uint8_t g_settings_sensitivity = 5;
-static uint8_t g_settings_volume = 4;
-static uint8_t g_settings_vibration = 1;  //0: OFF, 1: ON, 2: HIGH
-//Store ZOOM menu items
-static uint8_t g_zoom_level = 0; // 0: OFF, 1: X2
+
+//static uint8_t g_edit_mode = 0;  //0: navigation, 1: edit ±à¼­Ä£Ê½ÔÝ²»ÆôÓÃ
+
+//sleeptimer items
+static uint8_t g_sleeptimer_level = 0; //0: ON
+
+typedef struct{
+	uint8_t is_connected; 
+  char name[20];                  
+  uint32_t sleep_time_ms;         
+  uint32_t last_update_time;      
+}BabyUnit_t;
+
+static BabyUnit_t g_baby_units[3] = {
+	{0, "", 0, 0},
+  {0, "", 0, 0}, 
+  {0, "", 0, 0}
+};
+
+static uint8_t g_connected_baby_units = 0;  //when baby connect or disconnect update
 //------------------------------------------------------------------------------
 void UI_Init(osMessageQId *pvMsgQId)
 {
 	UI_StateReset();
+	printf("DEBUG: The exact size of UI_PUSetting_t is %d bytes.\n", sizeof(UI_PUSetting_t));
 	pAPP_MessageQH = pvMsgQId;
     osMessageQDef(UI_EventQueue, UI_Q_SIZE, UI_Event_t);
     UI_EventQueue = osMessageCreate(osMessageQ(UI_EventQueue), NULL);
@@ -171,7 +204,7 @@ void UI_ShowMenu(void)
   UI_DrawString("EXIT", 52, 358);
 	
  //white square: x: 425, y: 192   blank: x:40, y:111
-	UI_DrawWhiteSquare(425, 192);
+	UI_DrawWhiteSquare(425, 190);
 	
   static const char* language_strings[] = {
     "ENGLISH",    // 0
@@ -184,9 +217,20 @@ void UI_ShowMenu(void)
     "NEDERLANDS"  // 7
   };
 	
-	if (g_current_language >= 0 && g_current_language < sizeof(language_strings) / sizeof(language_strings[0])) 
+	if(tUI_PuSetting.ubLanguage < sizeof(language_strings) / sizeof(language_strings[0])) 
 	{
-		UI_DrawReverseString23(language_strings[g_current_language], 465, 198);
+		if(tUI_PuSetting.ubLanguage == 7)
+		{
+			UI_DrawReverseString23(language_strings[tUI_PuSetting.ubLanguage], 440, 200);
+		}
+		else if(tUI_PuSetting.ubLanguage == 3)
+		{
+			UI_DrawReverseString23(language_strings[tUI_PuSetting.ubLanguage], 455, 200);
+		}
+		else
+		{
+			UI_DrawReverseString23(language_strings[tUI_PuSetting.ubLanguage], 465, 200);
+		}
   }
 		
 	UI_Drawbox();
@@ -217,14 +261,18 @@ void UI_KeyLockActivate(void)
 //------------------------------------------------------------------------------
 void UI_ShowZoom(void)
 {
-	MenuBackground();
+	OSD_IMG_INFO tOsdImgInfo;
+	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_MENU, 1, &tOsdImgInfo);
+	tOsdImgInfo.uwHSize = 588;
+  tOsdImgInfo.uwVSize = 185;
+  tOSD_Img1(&tOsdImgInfo, OSD_QUEUE);
 	
-	OSD_IMG_INFO tInfor;
-	tInfor.uwHSize = 588;	//width
-	tInfor.uwVSize = 243;
-	tInfor.uwXStart = 26;
-	tInfor.uwYStart = 211;
-	OSD_EraserImg1(&tInfor);
+	//OSD_IMG_INFO tInfor;
+	//tInfor.uwHSize = 588;	//width
+	//tInfor.uwVSize = 243;
+	//tInfor.uwXStart = 26;
+	//tInfor.uwYStart = 211;
+	//OSD_EraserImg1(&tInfor);
 
   UI_DrawString("ZOOM", 280, 52);
   UI_DrawString("DIGITAL ZOOM", 52, 118);
@@ -241,19 +289,16 @@ void UI_ShowZoom(void)
   tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
 
 	UI_DrawHalfWhiteSquare(508, 110);
-  if (g_zoom_level == 0)
+  if (tUI_PuSetting.ubZoomLevel == 0)
   {
       UI_DrawReverseString23("OFF", 530, 120);
   }
   else // g_zoom_level == 1
   {
-      UI_DrawReverseString23("X2", 530, 120);
+      UI_DrawReverseString23("X2", 537, 120);
   }
 	
-	if(g_edit_mode == 0)
-	{
-		UI_Drawbox();
-	}
+	UI_Drawbox();
 }
 //------------------------------------------------------------------------------
 void UI_ShowLanguage(void)
@@ -262,17 +307,17 @@ void UI_ShowLanguage(void)
 
   UI_DrawString("LANGUAGE", 250, 52);
 
-  UI_DrawString("ENGLISH", 150, 140);
-  UI_DrawString("DANSK", 150, 180);
-  UI_DrawString("SUOMI", 150, 220);
-  UI_DrawString("FRANCAIS", 150, 260);
+  UI_DrawString("ENGLISH", 72, 118);
+  UI_DrawString("DANSK", 72, 158);
+  UI_DrawString("SUOMI", 72, 198);
+  UI_DrawString("FRANCAIS", 72, 238);
 
-  UI_DrawString("NORSK", 450, 140);
-  UI_DrawString("SVENSKA", 450, 180);
-  UI_DrawString("DEUTCH", 450, 220);
-	UI_DrawString("NEDERLANDS", 450, 260);
+  UI_DrawString("NORSK", 352, 118);
+  UI_DrawString("SVENSKA", 352, 158);
+  UI_DrawString("DEUTCH", 352, 198);
+	UI_DrawString("NEDERLANDS", 352, 238);
 
-  UI_DrawString("EXIT", 100, 320);
+  UI_DrawString("EXIT", 52, 380);
 
 
 	OSD_IMG_INFO tOsdImgInfoLine;
@@ -284,16 +329,16 @@ void UI_ShowLanguage(void)
     
   if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_DOT, 1, &tDotInfo) == OSD_OK)
   {
-      switch(g_current_language)
+      switch(tUI_PuSetting.ubLanguage)
       {
-          case 0: dot_x = 120; dot_y = 140; break; // ENGLISH
-          case 1: dot_x = 120; dot_y = 180; break; // DANSK
-          case 2: dot_x = 120; dot_y = 220; break; // SUOMI
-          case 3: dot_x = 120; dot_y = 260; break; // FRANCAIS
-          case 4: dot_x = 420; dot_y = 140; break; // NORSK
-          case 5: dot_x = 420; dot_y = 180; break; // SVENSKA
-          case 6: dot_x = 420; dot_y = 220; break; // DEUTCH
-          case 7: dot_x = 420; dot_y = 260; break; // NEDERLANDS
+          case 0: dot_x = 55; dot_y = 123; break; // ENGLISH
+          case 1: dot_x = 55; dot_y = 163; break; // DANSK
+          case 2: dot_x = 55; dot_y = 203; break; // SUOMI
+          case 3: dot_x = 55; dot_y = 243; break; // FRANCAIS
+          case 4: dot_x = 335; dot_y = 123; break; // NORSK
+          case 5: dot_x = 335; dot_y = 163; break; // SVENSKA
+          case 6: dot_x = 335; dot_y = 203; break; // DEUTCH
+          case 7: dot_x = 335; dot_y = 243; break; // NEDERLANDS
           default: dot_x = 0; break;
       }
 
@@ -331,32 +376,42 @@ void UI_ShowSetting(void)
   tOSD_Img2(&tOsdImgInfoLine, OSD_QUEUE);
 	
 	UI_DrawHalfWhiteSquare(508, 110);
+	UI_DrawHalfWhiteSquare(508, 150);
+	UI_DrawHalfWhiteSquare(508, 190);
 	
-	sprintf(value_str, "%d", g_settings_sensitivity);
-  UI_DrawString(value_str, 530, 118);
-	sprintf(value_str, "%d", g_settings_volume);
-  UI_DrawString(value_str, 530, 158);
+	sprintf(value_str, "%d", tUI_PuSetting.ubMicroSensitivity);
+  UI_DrawReverseString23(value_str, 545, 120);
+	sprintf(value_str, "%d", tUI_PuSetting.VolLvL.tVOL_UpdateLvL);
+  UI_DrawReverseString23(value_str, 545, 160);
 	
 	const char* vibration_str = "";
-	switch (g_settings_vibration)
+	switch (tUI_PuSetting.ubVibration)
   {
     case 0:
         vibration_str = "OFF";
         break;
     case 1:
-        vibration_str = "ON";
+        vibration_str = "LOW";
         break;
     case 2:
         vibration_str = "HIGH";
         break;
   }
-	UI_DrawString(vibration_str, 490, 198);
 	
-  if(g_edit_mode == 0)
-	{
-		UI_Drawbox(); 
+	if(vibration_str == "LOW")
+	{	
+		UI_DrawReverseString23(vibration_str, 527, 200);
 	}
+	else if(vibration_str == "HIGH")
+	{
+		UI_DrawReverseString23(vibration_str, 526, 200);
+	}
+	else
+	{
+		UI_DrawReverseString23(vibration_str, 530, 200);
+	}		
 	
+	UI_Drawbox(); 
 }
 //------------------------------------------------------------------------------
 void UI_ShowPairUnits(void)
@@ -407,37 +462,189 @@ void UI_Info(void)
 	UI_Drawbox();
 }
 //------------------------------------------------------------------------------
+void UI_CalculateSleepTimerMenuPositions(void)
+{
+    uint16_t start_y = 110;
+    
+    if (g_connected_baby_units == 0) {
+        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
+        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
+        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
+        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
+        SLEEPTIMER_MENU_ITEM_COUNT = 4;
+    }
+    else if (g_connected_baby_units == 1) {
+        start_y += 25;
+        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
+        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
+        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
+        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
+        SLEEPTIMER_MENU_ITEM_COUNT = 4;
+    }
+    else {
+        start_y += (g_connected_baby_units * 25 + 25); // ALL
+        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
+        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
+        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
+        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
+        SLEEPTIMER_MENU_ITEM_COUNT = 4;
+    }
+}
 void UI_ShowSleepTimer(void)
 {
-    MenuBackground(); 
+  MenuBackground(); 
 
-    UI_DrawString("SLEEP TIMER", 220, 52);
+  UI_DrawString("SLEEP TIMER", 220, 52);
 
-    UI_DrawString("ON/OFF", 52, 118);
-    UI_DrawString("STOP", 52, 158);
-    UI_DrawString("SLEEP HISTORY", 52, 198);
-    UI_DrawString("EXIT", 52, 238);
+  OSD_IMG_INFO tOsdImgInfoLine;
+  tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine);
+  tOSD_Img2(&tOsdImgInfoLine, OSD_QUEUE);
+	
+	
+	uint16_t current_y = 118;
 
-    OSD_IMG_INFO tOsdImgInfoLine;
-    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine);
-    tOSD_Img2(&tOsdImgInfoLine, OSD_QUEUE);
+  if (g_connected_baby_units == 0) 
+	{
+		//no one connect
+	}
+  else if (g_connected_baby_units == 1) 
+	{
+      for(uint8_t i = 0; i < 3; i++)
+			{
+          if(g_baby_units[i].is_connected) 
+					{
+              OSD_IMG_INFO tDotInfo;
+              if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_DOT, 1, &tDotInfo) == OSD_OK) 
+							{
+                  tDotInfo.uwXStart = 52;
+                  tDotInfo.uwYStart = current_y;
+                  tOSD_Img2(&tDotInfo, OSD_QUEUE);
+              }
+                
+              UI_DrawString23(g_baby_units[i].name, 72, current_y);
+                
+              UI_DrawString23("TIME", 320, current_y);
+                
+              char time_str[10];
+              uint32_t total_seconds = g_baby_units[i].sleep_time_ms / 1000;
+              uint8_t hours = total_seconds / 3600;
+              uint8_t minutes = (total_seconds % 3600) / 60;
+              uint8_t seconds = total_seconds % 60;
+              sprintf(time_str, "%02d:%02d:%02d", hours, minutes, seconds);
+              UI_DrawString23(time_str, 380, current_y);
+                
+              current_y += 25;
+              break;
+          }
+      }
+  }
+  else 
+	{
+      OSD_IMG_INFO tDotInfo;
+      if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_DOT, 1, &tDotInfo) == OSD_OK) {
+          tDotInfo.uwXStart = 52;
+          tDotInfo.uwYStart = current_y;
+          tOSD_Img2(&tDotInfo, OSD_QUEUE);
+      }
+        
+      UI_DrawString23("ALL", 72, current_y);
+      current_y += 25;
 
-    OSD_IMG_INFO tDotInfo;
-    if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_DOT, 1, &tDotInfo) == OSD_OK)
-    {
-        //g_sleep_timer_setting determines the y of point
-        uint16_t dot_y_pos[] = {118, 158, 198, 238};
-        if (g_sleep_timer_setting < 4) {
-            tDotInfo.uwXStart = 450;
-            tDotInfo.uwYStart = dot_y_pos[g_sleep_timer_setting];
-            tOSD_Img2(&tDotInfo, OSD_QUEUE);
+      for(uint8_t i = 0; i < 3; i++) {
+          if(g_baby_units[i].is_connected) {
+
+              UI_DrawString23(g_baby_units[i].name, 72, current_y);
+                
+              UI_DrawString23("TIME", 320, current_y);
+                
+              char time_str[10];
+              uint32_t total_seconds = g_baby_units[i].sleep_time_ms / 1000;
+              uint8_t hours = total_seconds / 3600;
+              uint8_t minutes = (total_seconds % 3600) / 60;
+              uint8_t seconds = total_seconds % 60;
+              sprintf(time_str, "%02d:%02d:%02d", hours, minutes, seconds);
+              UI_DrawString23(time_str, 380, current_y);
+                
+              current_y += 25;
+          }
+      }
+  }
+
+  UI_CalculateSleepTimerMenuPositions();
+
+  UI_DrawString("ON/OFF", 52, SLEEPTIMER_MENU_Y_POS[0] + 8);
+  UI_DrawString("STOP", 52, SLEEPTIMER_MENU_Y_POS[1] + 8);
+  UI_DrawString("SLEEP HISTORY", 52, SLEEPTIMER_MENU_Y_POS[2] + 8);
+  UI_DrawString("EXIT", 52, SLEEPTIMER_MENU_Y_POS[3] + 8);
+
+  UI_DrawHalfWhiteSquare(508, SLEEPTIMER_MENU_Y_POS[0]);
+  if (g_sleeptimer_level == 0) 
+	{
+      UI_DrawReverseString23("ON", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
+  } 
+	else 
+	{
+      UI_DrawReverseString23("OFF", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
+  }
+
+  UI_Drawbox();
+}
+
+void UI_ConnectBabyUnit(uint8_t unit_index, const char* unit_name, uint32_t initial_sleep_time_ms)
+{
+    if(unit_index < 3) {
+        g_baby_units[unit_index].is_connected = 1;
+        strncpy(g_baby_units[unit_index].name, unit_name, sizeof(g_baby_units[unit_index].name) - 1);
+        g_baby_units[unit_index].name[sizeof(g_baby_units[unit_index].name) - 1] = '\0';
+        g_baby_units[unit_index].sleep_time_ms = initial_sleep_time_ms;
+        g_baby_units[unit_index].last_update_time = osKernelSysTick();
+        
+        g_connected_baby_units = 0;
+        for(uint8_t i = 0; i < 3; i++) {
+            if(g_baby_units[i].is_connected) {
+                g_connected_baby_units++;
+            }
         }
     }
-    
-    g_rectangle_x = 40;
-    g_rectangle_y = SLEEP_TIMER_MENU_Y_POS[g_current_menu_index];
-    UI_Drawbox();
 }
+
+void UI_DisconnectBabyUnit(uint8_t unit_index)
+{
+    if(unit_index < 3) {
+        g_baby_units[unit_index].is_connected = 0;
+        g_baby_units[unit_index].name[0] = '\0';
+        g_baby_units[unit_index].sleep_time_ms = 0;
+        g_baby_units[unit_index].last_update_time = 0;
+        
+        g_connected_baby_units = 0;
+        for(uint8_t i = 0; i < 3; i++) {
+            if(g_baby_units[i].is_connected) {
+                g_connected_baby_units++;
+            }
+        }
+    }
+}
+
+void ShowMicrphoneSensitivity(void)
+{
+	
+}
+
+void DisplaySettings(void)
+{
+	
+}
+	
+void BabyUnitSettings(void)
+{
+	
+}
+	
+void TemperatureAlarm(void)
+{
+
+}
+
 //------------------------------------------------------------------------------
 void UI_TimerShow(void)
 {
@@ -845,66 +1052,43 @@ void MoveboxDown(void)
 {
     if(!g_is_menu_visible) return;
 	
-		if(g_current_menu_level == 2 && g_edit_mode == 1)
-		{
-			g_zoom_level = !g_zoom_level;
-		}
-		else if(g_current_menu_level == 4 && g_edit_mode == 1)
-    {
-			switch(g_current_menu_index)
-        {
-           case 0: // MICROPHONE SENSITIVITY
-              if(g_settings_sensitivity > 1) g_settings_sensitivity--;
-              break;
-           case 1: // VOLUME
-              if(g_settings_volume > 0) g_settings_volume--;
-              break;
-           case 2: //VIBRATION
-							if(g_settings_vibration > 0) 
-							{
-								g_settings_vibration--;
-							}
-							else
-							{
-								g_settings_vibration = 2;
-							}
-							break;
-        }
-		}
-		else
-		{
-        switch (g_current_menu_level)
-        {
-            case 0: // Menu
-                g_current_menu_index = (g_current_menu_index + 1) % MAIN_MENU_ITEM_COUNT;
-                g_rectangle_y = MAIN_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            case 1: // KeyLock 
-                g_current_menu_index = (g_current_menu_index + 1) % KEYLOCK_MENU_ITEM_COUNT;
-                g_rectangle_y = KEYLOCK_MENU_Y_POS[g_current_menu_index];
-                break;
-						
-            case 3: // Language
-                g_current_menu_index = (g_current_menu_index + 1) % LANGUAGE_MENU_ITEM_COUNT;
-                break;
-
-            case 4: // Settings
-                g_current_menu_index = (g_current_menu_index + 1) % SETTINGS_MENU_ITEM_COUNT;
-                g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            case 5: // Pair Units
-                g_current_menu_index = (g_current_menu_index + 1) % PAIRUNITS_MENU_ITEM_COUNT;
-                g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            default:
-                return; 
-        }
-		}
-    UI_RefreshScreen();
 		
+    switch (g_current_menu_level)
+    {
+     case 0: // Menu
+         g_current_menu_index = (g_current_menu_index + 1) % MAIN_MENU_ITEM_COUNT;
+         g_rectangle_y = MAIN_MENU_Y_POS[g_current_menu_index];
+         break;
+
+     case 1: // KeyLock 
+         g_current_menu_index = (g_current_menu_index + 1) % KEYLOCK_MENU_ITEM_COUNT;
+         g_rectangle_y = KEYLOCK_MENU_Y_POS[g_current_menu_index];
+         break;
+			
+     case 3: // Language
+         g_current_menu_index = (g_current_menu_index + 1) % LANGUAGE_MENU_ITEM_COUNT;
+         break;
+
+     case 4: // Settings
+         g_current_menu_index = (g_current_menu_index + 1) % SETTINGS_MENU_ITEM_COUNT;
+         g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
+         break;
+
+     case 5: // Pair Units
+         g_current_menu_index = (g_current_menu_index + 1) % PAIRUNITS_MENU_ITEM_COUNT;
+         g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+         break;
+			
+			case MENU_LEVEL_SLEEP_TIMER:
+				 g_current_menu_index = (g_current_menu_index + 1) % SLEEPTIMER_MENU_ITEM_COUNT;
+				 g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+					break;
+
+     default:
+         return; 
+    }
+		
+    UI_RefreshScreen();	
 }
 
 //------------------------------------------------------------------------------
@@ -912,67 +1096,41 @@ void MoveboxUp(void)
 {
     if(!g_is_menu_visible) return;
 	
-		if(g_current_menu_level == 2 && g_edit_mode == 1)
-		{
-			g_zoom_level = !g_zoom_level;
-		}
-		else if(g_current_menu_level == 4 && g_edit_mode == 1)
-    {
-			switch(g_current_menu_index)
-        {
-           case 0: // MICROPHONE SENSITIVITY
-              if(g_settings_sensitivity < 5) g_settings_sensitivity++;
-              break;
-					 
-           case 1: // VOLUME
-              if(g_settings_volume < 8) g_settings_volume++;
-              break;
-					 
-           case 2: //VIBRATION
-							if(g_settings_vibration < 2) 
-							{
-								g_settings_vibration++;
-							}
-							else
-							{
-								g_settings_vibration = 0;
-							}
-							break;
-        }
-		}
-		else
-		{
-         switch (g_current_menu_level)
-        {
-            case 0:
-                g_current_menu_index = (g_current_menu_index + MAIN_MENU_ITEM_COUNT - 1) % MAIN_MENU_ITEM_COUNT;
-                g_rectangle_y = MAIN_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            case 1:
-                g_current_menu_index = (g_current_menu_index + KEYLOCK_MENU_ITEM_COUNT - 1) % KEYLOCK_MENU_ITEM_COUNT;
-                g_rectangle_y = KEYLOCK_MENU_Y_POS[g_current_menu_index];
-                break;
-						
-            case 3: 
-                g_current_menu_index = (g_current_menu_index + LANGUAGE_MENU_ITEM_COUNT - 1) % LANGUAGE_MENU_ITEM_COUNT;
-                break;
-						
-            case 4:
-                g_current_menu_index = (g_current_menu_index + SETTINGS_MENU_ITEM_COUNT - 1) % SETTINGS_MENU_ITEM_COUNT;
-                g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            case 5:
-                g_current_menu_index = (g_current_menu_index + PAIRUNITS_MENU_ITEM_COUNT - 1) % PAIRUNITS_MENU_ITEM_COUNT;
-                g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-                break;
-
-            default:
-                return;
-        }
-      
+     switch (g_current_menu_level)
+     {
+     case 0:
+         g_current_menu_index = (g_current_menu_index + MAIN_MENU_ITEM_COUNT - 1) % MAIN_MENU_ITEM_COUNT;
+         g_rectangle_y = MAIN_MENU_Y_POS[g_current_menu_index];
+         break;
+		 
+     case 1:
+         g_current_menu_index = (g_current_menu_index + KEYLOCK_MENU_ITEM_COUNT - 1) % KEYLOCK_MENU_ITEM_COUNT;
+         g_rectangle_y = KEYLOCK_MENU_Y_POS[g_current_menu_index];
+         break;
+    
+     case 3: 
+         g_current_menu_index = (g_current_menu_index + LANGUAGE_MENU_ITEM_COUNT - 1) % LANGUAGE_MENU_ITEM_COUNT;
+         break;
+    
+     case 4:
+         g_current_menu_index = (g_current_menu_index + SETTINGS_MENU_ITEM_COUNT - 1) % SETTINGS_MENU_ITEM_COUNT;
+         g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
+         break;
+		 
+     case 5:
+         g_current_menu_index = (g_current_menu_index + PAIRUNITS_MENU_ITEM_COUNT - 1) % PAIRUNITS_MENU_ITEM_COUNT;
+         g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+         break;
+    
+		 case MENU_LEVEL_SLEEP_TIMER:
+				 g_current_menu_index = (g_current_menu_index + SLEEPTIMER_MENU_ITEM_COUNT - 1) % SLEEPTIMER_MENU_ITEM_COUNT;
+				 g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+				 break;
+		
+     default:
+         return;
     }
+      
 		UI_RefreshScreen();
 }
 //------------------------------------------------------------------------------
@@ -995,9 +1153,10 @@ void EnterKeyHandler(void)
                 
                 g_current_menu_index = 0; 
 							
-                switch(g_current_menu_level)
+                switch(g_current_menu_level)  //original position
                 {
                     case 1: g_rectangle_y = KEYLOCK_MENU_Y_POS[0]; break;
+										case 2: g_rectangle_y = ZOOM_MENU_Y_POS[0]; break;
                     case 4: g_rectangle_y = SETTINGS_MENU_Y_POS[0]; break;
                     case 5: g_rectangle_y = PAIRUNITS_MENU_Y_POS[0]; break;
                 }
@@ -1013,42 +1172,130 @@ void EnterKeyHandler(void)
             break;
 						
 				case 2:
-						if(g_edit_mode ==0)
+						switch(g_current_menu_index)
+            {
+                case 0: // DIGITAL ZOOM
+                    //ZOOM: OFF -> X2 -> OFF
+                    tUI_PuSetting.ubZoomLevel++;
+                    if(tUI_PuSetting.ubZoomLevel > 1) 
+										{
+                        tUI_PuSetting.ubZoomLevel = 0;
+                    }
+										g_settings_changed = 1;
+                    break;
+                    
+                case 1: // EXIT
+                    MenuExitHandler();
+                    break;
+                    
+                default:
+                    break;
+            }
+            break;
+						
+				case 3:
+						switch(g_current_menu_index)
 						{
-							if(g_current_menu_index == 0)
-							{
-								g_edit_mode = 1;
-							}
-							else
-							{
-								MenuExitHandler();
-							}
-						}
-						else
-						{
-							g_edit_mode = 0;
-						}
-						break;
+								case 0: // ENGLISH
+                    tUI_PuSetting.ubLanguage = 0;
+										g_settings_changed = 1;
+                    break;
+                case 1: // DANSK
+                    tUI_PuSetting.ubLanguage = 1;
+										g_settings_changed = 1;
+                    break;
+                case 2: // SUOMI
+                    tUI_PuSetting.ubLanguage = 2;
+										g_settings_changed = 1;
+                    break;
+                case 3: // FRANCAIS
+                    tUI_PuSetting.ubLanguage = 3;
+										g_settings_changed = 1;
+                    break;
+                case 4: // NORSK
+                    tUI_PuSetting.ubLanguage = 4;
+										g_settings_changed = 1;
+                    break;
+                case 5: // SVENSKA
+                    tUI_PuSetting.ubLanguage = 5;
+										g_settings_changed = 1;
+                    break;
+                case 6: // DEUTCH
+                    tUI_PuSetting.ubLanguage = 6;
+										g_settings_changed = 1;
+                    break;
+                case 7: // NEDERLANDS
+                    tUI_PuSetting.ubLanguage = 7;
+										g_settings_changed = 1;
+                    break;
+                case 8: // EXIT
+                    MenuExitHandler();
+                    break;
+                default:
+                    break;
+            }
+						
+            break;
 						
         case 4: 
-             if (g_edit_mode == 0)
+             switch(g_current_menu_index)
             {
-								if(g_current_menu_index == SETTINGS_MENU_ITEM_COUNT - 1)
-								{
-									MenuExitHandler(); 
-								}
-								else
-								{
-									if(g_current_menu_index == 0 || g_current_menu_index == 1 || g_current_menu_index == 2)
-									{
-										g_edit_mode = 1;
-									}
-								}
+                case 0: // MICROPHONE SENSITIVITY
+                    //1-5
+                    tUI_PuSetting.ubMicroSensitivity++;
+                    if(tUI_PuSetting.ubMicroSensitivity > 5) 
+										{
+                        tUI_PuSetting.ubMicroSensitivity = 1;
+                    }
+										g_settings_changed = 1;
+                    break;
+                    
+                case 1: // VOLUME
+                    //0-6
+                    tUI_PuSetting.VolLvL.tVOL_UpdateLvL++;
+                    if(tUI_PuSetting.VolLvL.tVOL_UpdateLvL > 6) 
+										{
+                        tUI_PuSetting.VolLvL.tVOL_UpdateLvL = 0;
+                    }
+										g_settings_changed = 1;
+										
+										//change underlying volume
+                    break;
+                    
+                case 2: // VIBRATION
+                    //OFF->LOW->HIGH->OFF
+                    tUI_PuSetting.ubVibration++;
+                    if(tUI_PuSetting.ubVibration > 2) 
+										{
+                        tUI_PuSetting.ubVibration = 0;
+                    }
+										g_settings_changed = 1;
+                    break;
+                    
+                case 3: // SLEEP TIMER
+                    g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
+                    g_current_menu_index = 0;
+                    break;
+                    
+                case 4: // DISPLAY SETTINGS
+                    
+                    break;
+                    
+                case 5: // BABY UNIT SETTINGS
+                    
+                    break;
+                    
+                case 6: // TEMPERATURE ALARM
+                    
+                    break;
+                    
+                case 7: // EXIT
+                    MenuExitHandler();
+                    break;
+                    
+                default:
+                    break;
             }
-            else if(g_edit_mode == 1)
-						{
-							g_edit_mode = 0;
-						}
             break;
 
         case 5: 
@@ -1058,7 +1305,31 @@ void EnterKeyHandler(void)
             }
             else {  }//pair
             break;
-
+						
+				case MENU_LEVEL_SLEEP_TIMER:
+						switch(g_current_menu_index)
+            {
+                case 0: // ON/OFF
+                    g_sleeptimer_level = !g_sleeptimer_level;
+                    break;
+                    
+                case 1: // STOP
+                    break;
+                    
+                case 2: // SLEEP HISTORY
+                    break;
+                    
+                case 3: // EXIT
+                    //SETTINGS SLEEP TIMER
+                    g_current_menu_level = 4;
+                    g_current_menu_index = 3;
+                    g_rectangle_y = SETTINGS_MENU_Y_POS[3];
+                    break;
+                    
+                default:
+                    break;
+            }
+            break;
     }
 		
     UI_RefreshScreen();
@@ -1066,19 +1337,26 @@ void EnterKeyHandler(void)
 //------------------------------------------------------------------------------
 void MenuExitHandler(void)
 {
-    if (!g_is_menu_visible) {
+    if(!g_is_menu_visible) {
         return;
     }
-
-    if (g_current_menu_level > 0)
+		
+		if(g_settings_changed == 1)
+		{
+			UI_UpdateDevStatusInfo();
+			g_settings_changed = 0;
+		}
+		
+    if(g_current_menu_level > 0)
     {
         uint8_t previous_menu = g_current_menu_level;
 
         g_current_menu_level = 0;
 
-        if (previous_menu >= 1 && previous_menu <= 6)
+        if(previous_menu >= 1 && previous_menu <= 6)
         {
             g_current_menu_index = previous_menu - 1;
+						g_rectangle_x = 40;
             g_rectangle_y = MAIN_MENU_Y_POS[g_current_menu_index];
         }
         else
@@ -1130,7 +1408,7 @@ void UI_RefreshScreen(void)
 			{
 				UI_Info();
 			}
-			else if(g_current_menu_level == 7)
+			else if(g_current_menu_level == MENU_LEVEL_SLEEP_TIMER)
 			{
 				UI_ShowSleepTimer();
 			}
