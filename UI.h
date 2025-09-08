@@ -182,6 +182,7 @@ void UI_ShowLanguage(void);
 void UI_ShowSetting(void);
 void UI_ShowPairUnits(void);
 void UI_Info(void);
+void UI_ShowSleepTimer(void);
 
 //------------------------------------------------------------------------------
 osMessageQId *pUI_GetEventQueueHandle(void);
