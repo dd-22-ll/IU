@@ -42,17 +42,17 @@ const UI_KeyEventMap_t UiKeyEventMap[] =
 {
 	{NULL,					0,			NULL,						NULL},
 	{AKEY_MENU, 		25,			UI_MenuKey, 					BUZ_PlaySingleSound},
-	{AKEY_MENU, 		0,			UI_EngModeKey,			BUZ_PlaySingleSound},				//UI_LeftArrowKey(menu)		//UI_CameraSettingMenu1Key
-	//{AKEY_LEFT, 		0,			UI_LeftArrowKey,			BUZ_PlaySingleSound},
+	//{AKEY_MENU, 		0,			UI_EngModeKey,			BUZ_PlaySingleSound},				//UI_LeftArrowKey(menu)		//UI_CameraSettingMenu1Key
+	{AKEY_MENU, 		0,			UI_ShowSleepTimer,			BUZ_PlaySingleSound},
+	{AKEY_LEFT, 		0,			MenuExitHandler,			BUZ_PlaySingleSound},
 	//{AKEY_LEFT, 		30,			UI_LeftArrowLongKey,		BUZ_PlaySingleSound},
-
 	//{AKEY_LEFT, 		20,			UI_EngModeKey,				BUZ_PlaySingleSound},
 
 
-	{AKEY_ENTER, 		0,			UI_EnterKey,				BUZ_PlaySingleSound},
-	{AKEY_UP, 			0,			UI_UpArrowKey,				BUZ_PlaySingleSound},
+	{AKEY_ENTER, 		0,			EnterKeyHandler,				BUZ_PlaySingleSound},
+	{AKEY_UP, 			0,			MoveboxUp,				BUZ_PlaySingleSound},
 	{AKEY_UP, 			30,			UI_FwUpgViaSdCard,   		NULL},
-	{AKEY_DOWN, 		0,			UI_DownArrowKey,			BUZ_PlaySingleSound},
+	{AKEY_DOWN, 		0,			MoveboxDown,			BUZ_PlaySingleSound},
 	
 //	{AKEY_LEFT, 		0,			UI_LeftArrowKey,			BUZ_PlaySingleSound},
 //	{AKEY_LEFT, 		30,			UI_LeftArrowLongKey,		BUZ_PlaySingleSound},
@@ -74,7 +74,8 @@ const UI_KeyEventMap_t UiKeyEventMap[] =
 UI_State_t tUI_State;
 static APP_State_t tUI_SyncAppState;
 UI_BUStatus_t tUI_CamStatus[CAM_4T];
-static UI_PUSetting_t tUI_PuSetting;
+//static UI_PUSetting_t tUI_PuSetting;
+UI_PUSetting_t tUI_PuSetting;
 const static UI_MenuFuncPtr_t tUI_StateMap2MenuFunc[UI_STATE_MAX] =
 {
 	[UI_DISPLAY_STATE]			= UI_DisplayArrowKeyFunc,
@@ -2951,6 +2952,7 @@ void UI_DisplayArrowKeyFunc(UI_ArrowKey_t tArrowKey)
 	tOSD_Img2(&tOsdImgInfo, OSD_UPDATE);
 	tUI_State = UI_SHOWSTSICON_STATE;
 }
+
 //------------------------------------------------------------------------------
 void UI_DrawMenuPage(void)
 {
@@ -7825,10 +7827,14 @@ void UI_LoadDevStatusInfo(void)
         REC_TimeSet(0,300);
 		tUI_PuSetting.tVdoMode = UI_PHOTOCAP_MODE;
 	}
+	tUI_PuSetting.ubVibration = 1;      //  LOW
+  tUI_PuSetting.ubZoomLevel = 0;      //  OFF
+  tUI_PuSetting.ubLanguage = 0;       //  ENGLISH
+	tUI_PuSetting.ubMicroSensitivity = 3;
 	tUI_PuSetting.ubTotalBuNum 				 = DISPLAY_MODE;
 	tUI_PuSetting.tAdoSrcCamNum				 = (tUI_PuSetting.tAdoSrcCamNum > CAM4)?CAM1:tUI_PuSetting.tAdoSrcCamNum;
-	tUI_PuSetting.BriLvL.tBL_UpdateLvL		 = BL_LVL5;
-	tUI_PuSetting.VolLvL.tVOL_UpdateLvL		 = VOL_LVL3;
+	//tUI_PuSetting.BriLvL.tBL_UpdateLvL		 = BL_LVL5;
+	//tUI_PuSetting.VolLvL.tVOL_UpdateLvL		 = VOL_LVL3;		//close default config
 	tUI_PuSetting.IconSts.ubDrawStsIconFlag  = FALSE;
 	tUI_PuSetting.IconSts.ubRdPairIconFlag   = FALSE;
 	tUI_PuSetting.IconSts.ubClearThdCntFlag	 = FALSE;
@@ -8080,6 +8086,9 @@ void UI_SwitchCameraSource4TripleView(void)
 extern uint8_t demo_engmode;
 void UI_EngModeKey(void)
 {
+	printf("1235");
+	
+	/*
 	OSD_IMG_INFO tOsdImgInfo;
 	
 	if (1 == demo_engmode)
@@ -8113,7 +8122,7 @@ void UI_EngModeKey(void)
 		OSD_EraserImg2(&tOsdImgInfo);
 		OSD_Weight(OSD_WEIGHT_8DIV8);
 	}	
-	printf(">>¡¡UI_EngModeKey \n");
+	printf(">>Â¡Â¡UI_EngModeKey \n");
 	
 	
 	
@@ -8167,7 +8176,7 @@ void UI_EngModeKey(void)
 	
 	tUI_EngOsdImg.pSymbolImgIdxArray = uwUI_SymbolArray;
 	
-	printf(">>¡¡UI_EngModeKey---- \n");
+	printf(">>Â¡Â¡UI_EngModeKey---- \n");
 	
 	
 	//EN_SetupOsdImgRotate(OSD_IMG_ROTATION_90);
@@ -8177,6 +8186,7 @@ void UI_EngModeKey(void)
 	demo_engmode = 1;
 	
 #endif
+*/
 }
 //------------------------------------------------------------------------------
 void UI_EngModeCtrl(UI_ArrowKey_t tArrowKey)
@@ -9940,6 +9950,7 @@ uint8_t UI_ChkRemotePlayTrigger(void)
 {
     return ubUI_RemotePlayTrigger;
 }
+
 #endif
 
 
