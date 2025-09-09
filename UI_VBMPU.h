@@ -712,7 +712,7 @@ typedef struct
 	uint8_t					ubZoomLevel;
 	uint8_t					ubLanguage;
 	uint8_t					ubMicroSensitivity;	
-	uint8_t					ubReserved[217];		//reduce appropriately after change, original: 221
+	uint8_t					ubReserved[221];		//reduce appropriately after change, original: 221
 }UI_PUSetting_t;
 
 typedef struct
@@ -981,3 +981,4 @@ void UI_FSInfoInstall(void);
 void UI_TxFsCbFunc(uint8_t ubType);
 #endif
 #endif
+
