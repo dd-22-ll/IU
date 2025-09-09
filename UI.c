@@ -121,7 +121,7 @@ static uint8_t g_connected_baby_units = 0;  //when baby connect or disconnect up
 void UI_Init(osMessageQId *pvMsgQId)
 {
 	UI_StateReset();
-	printf("DEBUG: The exact size of UI_PUSetting_t is %d bytes.\n", sizeof(UI_PUSetting_t));
+	printf("DEBUG: The ORIGINAL size of UI_PUSetting_t is %u bytes.\n", sizeof(UI_PUSetting_t));
 	pAPP_MessageQH = pvMsgQId;
     osMessageQDef(UI_EventQueue, UI_Q_SIZE, UI_Event_t);
     UI_EventQueue = osMessageCreate(osMessageQ(UI_EventQueue), NULL);
@@ -379,8 +379,11 @@ void UI_ShowSetting(void)
 	UI_DrawHalfWhiteSquare(508, 150);
 	UI_DrawHalfWhiteSquare(508, 190);
 	
+	if(g_connected_baby == 1)
+	{
 	sprintf(value_str, "%d", tUI_PuSetting.ubMicroSensitivity);
   UI_DrawReverseString23(value_str, 545, 120);
+	}
 	sprintf(value_str, "%d", tUI_PuSetting.VolLvL.tVOL_UpdateLvL);
   UI_DrawReverseString23(value_str, 545, 160);
 	
@@ -1241,7 +1244,7 @@ void EnterKeyHandler(void)
              switch(g_current_menu_index)
             {
                 case 0: // MICROPHONE SENSITIVITY
-                    //1-5
+                    
                     tUI_PuSetting.ubMicroSensitivity++;
                     if(tUI_PuSetting.ubMicroSensitivity > 5) 
 										{
@@ -1275,6 +1278,9 @@ void EnterKeyHandler(void)
                 case 3: // SLEEP TIMER
                     g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
                     g_current_menu_index = 0;
+										UI_CalculateSleepTimerMenuPositions();
+										g_rectangle_x = 40;
+										g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
                     break;
                     
                 case 4: // DISPLAY SETTINGS
@@ -1319,11 +1325,8 @@ void EnterKeyHandler(void)
                 case 2: // SLEEP HISTORY
                     break;
                     
-                case 3: // EXIT
-                    //SETTINGS SLEEP TIMER
-                    g_current_menu_level = 4;
-                    g_current_menu_index = 3;
-                    g_rectangle_y = SETTINGS_MENU_Y_POS[3];
+                case 3: // EXIT SETTINGS SLEEP TIMER
+										MenuExitHandler();
                     break;
                     
                 default:
@@ -1347,7 +1350,14 @@ void MenuExitHandler(void)
 			g_settings_changed = 0;
 		}
 		
-    if(g_current_menu_level > 0)
+		
+		if(g_current_menu_level == MENU_LEVEL_SLEEP_TIMER)
+		{
+				g_current_menu_level = 4; // Settings menu level
+        g_current_menu_index = 3; // cursor positioning "SLEEP TIMER"
+        g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
+		}
+    else if(g_current_menu_level > 0)
     {
         uint8_t previous_menu = g_current_menu_level;
 
@@ -1369,6 +1379,7 @@ void MenuExitHandler(void)
     {
         g_is_menu_visible = 0;
     }
+		
     UI_RefreshScreen();
 }
 //------------------------------------------------------------------------------
