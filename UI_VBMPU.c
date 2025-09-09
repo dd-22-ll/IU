@@ -7826,11 +7826,12 @@ void UI_LoadDevStatusInfo(void)
 		UI_CLEAR_CALENDAR_TODEFU(tUI_PuSetting.RecInfo.tREC_Time, RECTIME_5MIN);
         REC_TimeSet(0,300);
 		tUI_PuSetting.tVdoMode = UI_PHOTOCAP_MODE;
+		tUI_PuSetting.VolLvL.tVOL_UpdateLvL		 = VOL_LVL3;		//volume
+		tUI_PuSetting.ubVibration = 1;      //  LOW
+		tUI_PuSetting.ubZoomLevel = 0;      //  OFF
+		tUI_PuSetting.ubLanguage = 0;       //  ENGLISH
+		tUI_PuSetting.ubMicroSensitivity = 3;
 	}
-	tUI_PuSetting.ubVibration = 1;      //  LOW
-  tUI_PuSetting.ubZoomLevel = 0;      //  OFF
-  tUI_PuSetting.ubLanguage = 0;       //  ENGLISH
-	tUI_PuSetting.ubMicroSensitivity = 3;
 	tUI_PuSetting.ubTotalBuNum 				 = DISPLAY_MODE;
 	tUI_PuSetting.tAdoSrcCamNum				 = (tUI_PuSetting.tAdoSrcCamNum > CAM4)?CAM1:tUI_PuSetting.tAdoSrcCamNum;
 	//tUI_PuSetting.BriLvL.tBL_UpdateLvL		 = BL_LVL5;
@@ -7917,6 +7918,11 @@ void UI_UpdateDevStatusInfo(void)
 	memcpy(tUI_DevStsInfo.cbUI_FwVersion, SN937XX_FW_VERSION, sizeof(tUI_DevStsInfo.cbUI_FwVersion) - 1);
 	memcpy(tUI_DevStsInfo.tBU_StatusInfo, tUI_CamStatus, (CAM_4T * sizeof(UI_BUStatus_t)));
 	memcpy(&tUI_DevStsInfo.tPU_SettingInfo, &tUI_PuSetting, sizeof(UI_PUSetting_t));
+	printf("\n--- SAVING TO FLASH ---\n");
+    printf("Tag to be saved: [%s]\n", tUI_DevStsInfo.cbUI_DevStsTag);
+    printf("Version to be saved: [%s]\n", tUI_DevStsInfo.cbUI_FwVersion);
+    printf("Vibration to be saved: %d\n", tUI_DevStsInfo.tPU_SettingInfo.ubVibration);
+    printf("-----------------------\n\n");
 	SF_DisableWrProtect();
 	SF_Erase(SF_SE, ulUI_SFAddr, pSF_Info->ulSecSize, 1);
 	SF_Write(ulUI_SFAddr, sizeof(UI_DeviceStatusInfo_t), (uint8_t *)&tUI_DevStsInfo);
