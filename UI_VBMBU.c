@@ -228,7 +228,12 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 {
 	APP_EventMsg_t tUI_GetLinkStsMsg = {0};
 
-	osMutexWait(UI_BUMutex, osWaitForever);
+	osStatus uiMutexState = osMutexWait(UI_BUMutex, 0);
+	if (uiMutexState != osOK)
+	{
+		/* Skip the refresh when the UI mutex is owned by the key handler. */
+		return;
+	}
 	UI_CLEAR_THREADCNT(ubUI_ClearThdCntFlag, *pThreadCnt);
 	switch(tUI_SyncAppState)
 	{
@@ -270,9 +275,11 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
             }   
 #endif
 						if(ubRC_GetFlg(0))
-						ubRC_SetFlg(ENCODE_0, FALSE);  //掉线后关闭RC，稍微重压
+			if (uiMutexState == osOK)
+				osMutexRelease(UI_BUMutex);
 			break;
-		case APP_PAIRING_STATE:
+	if (uiMutexState == osOK)
+		osMutexRelease(UI_BUMutex);
 			if((*pThreadCnt % UI_PAIRINGLED_PERIOD) == 0)
 				PAIRING_LED_IO = ~PAIRING_LED_IO;
 			(*pThreadCnt)++;

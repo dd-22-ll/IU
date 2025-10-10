@@ -35,6 +35,7 @@
 #include "CIPHER_API.h"
 #include "LCD.h"
 #include "WDT.h"
+#include "I2C.h"
 #ifdef CFG_UART1_ENABLE
 #include "UI_UART1.h"
 #endif
@@ -58,6 +59,10 @@ const static APP_StaNumMap_t tAPP_STANumTable[CAM_4T] =
 	[CAM4] = {KNL_STA4, PAIR_STA4, TWC_STA4},
 };
 static APP_KNLInfo_t tAPP_KNLInfo;
+static I2C1_Type *pI2CSlaveHandle;
+#define APP_I2C_SLAVE_ADDRESS               (0x51U)
+#define APP_I2C_RX_BUFFER_SIZE              (64U)
+static uint8_t aubAPP_I2CSlaveRxBuf[APP_I2C_RX_BUFFER_SIZE];
 #ifdef VBM_PU
 const static APP_DispLocMap_t tAPP_DispLocMap[] =
 {
@@ -76,13 +81,15 @@ APP_PairRoleInfo_t tAPP_PairRoleInfo;
 #endif
 static void APP_StartThread(void const *argument);
 static void APP_WatchDogThread(void const *argument);
+static bool APP_I2CSlaveInit(void);
+static void APP_I2CSlaveThread(void const *argument);
 //------------------------------------------------------------------------------
 unsigned char invalid_param;
 void APP_Init(void)
 {
     osStatusN APP_OsStatus;
 
-	APP_OsStatus = osKernelInitialize((uint8_t*)ulMMU_GetCacheHeapStartAddr(), 
+        APP_OsStatus = osKernelInitialize((uint8_t*)ulMMU_GetCacheHeapStartAddr(),
 												osHeapSize, 
 									  (uint8_t*)ulMMU_GetUnCacheHeapStartAddr(), 
 												ulMMU_GetUnCacheHeapSize());   	
@@ -101,12 +108,26 @@ void APP_Init(void)
 	}
 	
 	SF_SetWpPin(ubAPP_SfWpGpioPin);
-	SF_Init();
-	PROF_Init();
-	MMU_Init();
-	TWC_Init();
-	CLI_Init();
-	CIPHER_Init();
+        SF_Init();
+        PROF_Init();
+        MMU_Init();
+        TWC_Init();
+        /* I2C 从模式直接在系统初始化中完成，然后进入专属线程接收数据。 */
+        if (APP_I2CSlaveInit())
+        {
+                osThreadDef(APP_I2CSlaveThread, APP_I2CSlaveThread, THREAD_PRIO_I2C_SLAVE_HANDLER, 1, THREAD_STACK_I2C_SLAVE_HANDLER);
+                osThreadId tI2CThread = osThreadCreate(osThread(APP_I2CSlaveThread), NULL);
+                if (tI2CThread == NULL)
+                {
+                        printd(DBG_ErrorLvl, "Create APP_I2CSlaveThread fail!\n");
+                }
+        }
+        else
+        {
+                printd(DBG_ErrorLvl, "I2C slave initialisation failed\n");
+        }
+        CLI_Init();
+        CIPHER_Init();
 
 #ifdef CFG_UART1_ENABLE
 	UART1_RecvInit();
@@ -145,6 +166,110 @@ void APP_Init(void)
 	/*! If all is well, the scheduler will now be running, and the following
 	line will never be reached. */
 	for( ;; );
+}
+//------------------------------------------------------------------------------
+static bool APP_I2CSlaveInit(void)
+{
+        /* 以标准模式 (100KHz) 地址 0x51 作为从设备等待其他芯片写入。 */
+        pI2CSlaveHandle = pI2C_SlaveInit(I2C_1, I2C_SLAVE, I2C_SADDR8, APP_I2C_SLAVE_ADDRESS);
+        if (pI2CSlaveHandle != NULL)
+        {
+                printd(DBG_InfoLvl, "I2C slave ready on I2C1 (standard-mode, addr 0x%02X)\n", APP_I2C_SLAVE_ADDRESS);
+                memset(aubAPP_I2CSlaveRxBuf, 0, sizeof(aubAPP_I2CSlaveRxBuf));
+                return true;
+        }
+        return false;
+}
+//------------------------------------------------------------------------------
+I2C1_Type *APP_GetI2CSlaveHandle(void)
+{
+        return pI2CSlaveHandle;
+}
+//------------------------------------------------------------------------------
+static void APP_I2CSlaveThread(void const *argument)
+{
+        (void)argument;
+
+        while (1)
+        {
+                if (pI2CSlaveHandle == NULL)
+                {
+                        osDelay(10);
+                        continue;
+                }
+
+                uint32_t ulTotalBytes = 0;
+                int32_t lStoredBytes = I2C_SlaveReceive(pI2CSlaveHandle, aubAPP_I2CSlaveRxBuf, APP_I2C_RX_BUFFER_SIZE, &ulTotalBytes);
+
+                if (lStoredBytes > 0)
+                {
+                        uint32_t ulStored = (uint32_t)lStoredBytes;
+                        if (ulStored > APP_I2C_RX_BUFFER_SIZE)
+                        {
+                                ulStored = APP_I2C_RX_BUFFER_SIZE;
+                        }
+
+                        char acAscii[APP_I2C_RX_BUFFER_SIZE + 1];
+                        for (uint32_t i = 0; i < ulStored; ++i)
+                        {
+                                uint8_t ubByte = aubAPP_I2CSlaveRxBuf[i];
+                                acAscii[i] = (ubByte >= 0x20U && ubByte <= 0x7EU) ? (char)ubByte : '.';
+                        }
+                        acAscii[ulStored] = '\0';
+
+                        char acHex[APP_I2C_RX_BUFFER_SIZE * 3 + 1];
+                        char *pcOut = acHex;
+                        size_t zRemain = sizeof(acHex);
+                        for (uint32_t i = 0; i < ulStored && zRemain > 1; ++i)
+                        {
+                                int written = snprintf(pcOut, zRemain, "%02X ", aubAPP_I2CSlaveRxBuf[i]);
+                                if (written <= 0 || (size_t)written >= zRemain)
+                                {
+                                        pcOut[0] = '\0';
+                                        break;
+                                }
+                                pcOut += written;
+                                zRemain -= (size_t)written;
+                        }
+                        if (pcOut != acHex && pcOut[-1] == ' ')
+                        {
+                                pcOut[-1] = '\0';
+                        }
+                        else if (zRemain > 0)
+                        {
+                                *pcOut = '\0';
+                        }
+
+                        if (ulTotalBytes > ulStored)
+                        {
+                                printd(DBG_InfoLvl, "[I2C] RX truncated %lu->%lu bytes (buffer=%u)\n",
+                                       (unsigned long)ulTotalBytes,
+                                       (unsigned long)ulStored,
+                                       APP_I2C_RX_BUFFER_SIZE);
+                        }
+
+                        printd(DBG_InfoLvl, "[I2C] RX %lu byte(s): %s\n", (unsigned long)ulStored, acHex);
+                        printd(DBG_InfoLvl, "[I2C] Message: %s\n", acAscii);
+                }
+                else if (lStoredBytes < 0)
+                {
+                        if (lStoredBytes == -1)
+                        {
+                                printd(DBG_ErrorLvl, "[I2C] RX failed: invalid receive parameters\n");
+                        }
+                        else
+                        {
+                                uint32_t ulActual = (ulTotalBytes > 0U) ? ulTotalBytes : (uint32_t)(-lStoredBytes);
+                                printd(DBG_ErrorLvl, "[I2C] RX overflow: total=%lu bytes (buffer=%u)\n",
+                                       (unsigned long)ulActual,
+                                       APP_I2C_RX_BUFFER_SIZE);
+                        }
+                }
+                else
+                {
+                        osDelay(1);
+                }
+        }
 }
 //------------------------------------------------------------------------------
 void APP_StartThread(void const *argument)

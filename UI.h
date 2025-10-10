@@ -194,6 +194,17 @@ void UI_OnInitDialog(void);
 void UI_StateReset(void);
 void UI_UpdateFwUpgStatus(void *ptUpgStsReport);
 void UI_UpdateAppStatus(void *ptAppStsReport);
+/**
+ * Refresh the on-screen status indicators.
+ *
+ * @param pThreadCnt Pointer to the UI task's iteration counter.
+ *        UI_UpdateStatus increments or clears this counter to
+ *        control periodic redraw timing (for example lost-link
+ *        detection and status-bar refresh).  The implementation will skip
+ *        the refresh when the shared UI mutex is busy so key-processing
+ *        threads that hold the same lock are not blocked by the periodic
+ *        status update.
+ */
 void UI_UpdateStatus(uint16_t *pThreadCnt);
 void UI_EventHandles(UI_Event_t *ptEventPtr);
 APP_EventMsg_t *tUI_ViewTypeSetup(UI_CamViewType_t tViewType);

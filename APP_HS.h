@@ -26,6 +26,7 @@
 #include "APP_CFG.h"
 #include "BSP.h"
 #include "USBD_API.h"
+#include "I2C.h"
 //------------------------------------------------------------------------------
 #define APP_EVENTQUEUE_SZ			60
 #define APP_PAIRING_TIMEOUT			10	//!< Unit: seconds
@@ -197,6 +198,7 @@ void APP_LinkStateFunc(APP_EventMsg_t *ptEventMsg);
 void APP_LostLinkStateFunc(APP_EventMsg_t *ptEventMsg);
 void APP_PairingStateFunc(APP_EventMsg_t *ptEventMsg);
 void APP_doPairingStart(void *pvPairInfo);
+I2C1_Type *APP_GetI2CSlaveHandle(void);
 #ifdef VBM_PU
 void APP_doUnbindBU(APP_EventMsg_t *ptEventMsg);
 #endif

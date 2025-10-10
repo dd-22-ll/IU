@@ -645,8 +645,19 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 	sPRF_DrvMode_t tCurDrvMd = sPRF_TRX_MODE;
 	UI_CamNum_t tCamNum;
 #endif
-	osMutexWait(UI_PUMutex, osWaitForever);
-	UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
+    osStatus uiMutexState = osMutexWait(UI_PUMutex, 0);
+    if (uiMutexState != osOK)
+    {
+            /*
+             * The UI event thread uses the same mutex when dispatching key
+             * presses.  If we block here waiting forever we can starve the
+             * key handler and make the keypad look dead.  By skipping this
+             * refresh when the mutex is busy we let the key task finish and
+             * retry the status update on the next tick.
+             */
+            return;
+    }
+    UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
 
 #if (APP_REC_FUNC_ENABLE && APP_PLAY_REMOTE_ENABLE)
     if( UI_RECFILE_PLAY == tUI_RecPlayAct.tPlaySts && KNL_SIM_FLD == tUI_RecPlayAct.tSimFld &&        
@@ -712,8 +723,9 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 		}
 		else
 			ubUI_UpdDtStsCnt = 0;
-		osMutexRelease(UI_PUMutex);
-		return;
+            if (uiMutexState == osOK)
+                    osMutexRelease(UI_PUMutex);
+            return;
 	}
 	else if(sPRF_APDIRECT_MODE == tUI_sPRFdrv)
 	{
@@ -754,8 +766,9 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 			break;
 		case APP_PAIRING_STATE:
 			UI_DrawPairingStatusIcon();
-			osMutexRelease(UI_PUMutex);
-			return;
+                    if (uiMutexState == osOK)
+                            osMutexRelease(UI_PUMutex);
+                    return;
 		default:
 			break;
 	}
@@ -772,7 +785,8 @@ END_UPDATESTS:
 		tUI_GetLinkStsMsg.ubAPP_Event 		= APP_LINKSTATUS_REPORT_EVENT;
 		UI_SendMessageToAPP(&tUI_GetLinkStsMsg);
 	}
-	osMutexRelease(UI_PUMutex);
+    if (uiMutexState == osOK)
+            osMutexRelease(UI_PUMutex);
 }
 //------------------------------------------------------------------------------
 void UI_EventHandles(UI_Event_t *ptEventPtr)

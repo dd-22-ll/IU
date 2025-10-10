@@ -487,8 +487,8 @@ I2C1_Type *pI2C_SlaveInit (I2C_TYP tNth, I2C_SLAVE_TYP tGc, I2C_SLAVE_ADDR_TYP t
 	I2C1_Type *pI2C;
 	osMutexId *pMutex;
 	
-	I2C_Init();
-	pMutex = (I2C1 == pI2C)?&I2C_Mutex1:&I2C_Mutex2;
+        I2C_Init();
+        pMutex = (I2C_1 == tNth)?&I2C_Mutex1:&I2C_Mutex2;
 	osMutexWait(*pMutex, osWaitForever);
 	if (I2C_1 != tNth)
 	{
@@ -573,16 +573,20 @@ bool bI2C_SlaveReadByte (I2C1_Type *pI2C, uint8_t *ubData, uint32_t *ulSz)
 	return false;
 }
 //------------------------------------------------------------------------------
-bool bI2C_SlaveProcessInternal (I2C1_Type *pI2C, uint8_t *pWrBuf, uint32_t ulWrSz, uint8_t *pRdBuf, uint32_t ulRdSz)
+static bool bI2C_SlaveProcessInternal (I2C1_Type *pI2C, uint8_t *pWrBuf, uint32_t ulWrSz, uint8_t *pRdBuf, uint32_t ulRdSz, uint32_t *pulWrCnt, uint32_t *pulRdCnt)
 {
-	uint32_t ulWrCnt, ulRdCnt;
-	
-	ulWrCnt = ulRdCnt = 0;	
-	if (true == bI2C_SlaveAddrMatch(pI2C))
-	{
-		while(1)
-		{
-			if (!pI2C->I2C_RW)
+        uint32_t ulWrCnt, ulRdCnt;
+
+        ulWrCnt = ulRdCnt = 0;
+        if (pulWrCnt)
+                *pulWrCnt = 0;
+        if (pulRdCnt)
+                *pulRdCnt = 0;
+        if (true == bI2C_SlaveAddrMatch(pI2C))
+        {
+                while(1)
+                {
+                        if (!pI2C->I2C_RW)
 			{
 				uint8_t ubTemp;
 				
@@ -591,9 +595,13 @@ bool bI2C_SlaveProcessInternal (I2C1_Type *pI2C, uint8_t *pWrBuf, uint32_t ulWrS
 			else
 				if (false == bI2C_SlaveWriteByte(pI2C, (ulWrSz > ulWrCnt)?pWrBuf[ulWrCnt]:0xFF, &ulWrCnt))	break;
 		}
-		return (ulWrSz == ulWrCnt && ulRdSz == ulRdCnt)?true:false;
-	}
-	return false;
+                if (pulWrCnt)
+                        *pulWrCnt = ulWrCnt;
+                if (pulRdCnt)
+                        *pulRdCnt = ulRdCnt;
+                return (ulWrSz == ulWrCnt && ulRdSz == ulRdCnt)?true:false;
+        }
+        return false;
 }
 //------------------------------------------------------------------------------
 bool bI2C_SlaveProcess (I2C1_Type *pI2C, uint8_t *pWrBuf, uint32_t ulWrSz, uint8_t *pRdBuf, uint32_t ulRdSz)
@@ -603,7 +611,7 @@ bool bI2C_SlaveProcess (I2C1_Type *pI2C, uint8_t *pWrBuf, uint32_t ulWrSz, uint8
 	
 	pMutex = (I2C1 == pI2C)?&I2C_Mutex1:&I2C_Mutex2;
 	osMutexWait(*pMutex, osWaitForever);
-	bFlag = bI2C_SlaveProcessInternal (pI2C, pWrBuf, ulWrSz, pRdBuf, ulRdSz);
+        bFlag = bI2C_SlaveProcessInternal (pI2C, pWrBuf, ulWrSz, pRdBuf, ulRdSz, NULL, NULL);
 	osMutexRelease(*pMutex);
 	return bFlag;
 }
@@ -615,7 +623,32 @@ bool bI2C_SlaveWrite (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulSz)
 //------------------------------------------------------------------------------
 bool bI2C_SlaveRead (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulSz)
 {
-	return bI2C_SlaveProcess (pI2C, NULL, 0, pBuf, ulSz);
+        return bI2C_SlaveProcess (pI2C, NULL, 0, pBuf, ulSz);
+}
+//------------------------------------------------------------------------------
+int32_t I2C_SlaveReceive (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulBufSz, uint32_t *pulTotalCnt)
+{
+        osMutexId *pMutex;
+        uint32_t ulActualRd = 0;
+
+        if (!pI2C || !pBuf || !ulBufSz)
+                return -1;
+
+        pMutex = (I2C1 == pI2C)?&I2C_Mutex1:&I2C_Mutex2;
+        osMutexWait(*pMutex, osWaitForever);
+        bI2C_SlaveProcessInternal(pI2C, NULL, 0, pBuf, ulBufSz, NULL, &ulActualRd);
+        osMutexRelease(*pMutex);
+
+        if (pulTotalCnt)
+                *pulTotalCnt = ulActualRd;
+
+        if (!ulActualRd)
+                return 0;
+
+        if (ulActualRd > ulBufSz)
+                return -((int32_t)ulActualRd);
+
+        return (int32_t)ulActualRd;
 }
 //------------------------------------------------------------------------------
 void I2C_Slave1Isr (void)

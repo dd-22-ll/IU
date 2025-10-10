@@ -656,9 +656,20 @@ void UI_TimerShow(void)
 //------------------------------------------------------------------------------
 static void UI_Thread(void const *argument)
 {
+	/*
+	 * uwUI_TaskCnt keeps track of how many times the UI thread has
+	 * executed UI_UpdateStatus().  The counter is passed by address so the
+	 * UI layer can both reset it when the screen needs to be redrawn from
+	 * scratch and reuse it to throttle periodic icon/OSD refresh work.
+	 */
 	static uint16_t uwUI_TaskCnt = 0;
 	while(1)
 	{
+		// UI_UpdateStatus uses the shared counter to schedule periodic
+		// refresh work and to detect when a full redraw has been requested.
+		// The refresh routine now only runs when it can grab UI_PUMutex so the
+		// key handler (which also owns that mutex while dispatching a press)
+		// cannot be starved by the UI thread.
 		//UI_UpdateStatus(&uwUI_TaskCnt);		//refresh 
 		#ifdef VBM_PU
 			//printf("UI_Thread:  AntLvl[%d]\n", ulKNL_GetFps(KNL_BB_FRM_OK, KNL_SRC_1_MAIN));
