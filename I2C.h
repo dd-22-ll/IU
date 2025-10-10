@@ -255,6 +255,7 @@ bool bI2C_SlaveWrite (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulSz);
 	\endcode
 */
 bool bI2C_SlaveRead (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulSz);
+int32_t I2C_SlaveReceive (I2C1_Type *pI2C, uint8_t *pBuf, uint32_t ulBufSz, uint32_t *pulTotalCnt);
 //------------------------------------------------------------------------------
 /*!
 	\brief 		I2C Slave Interrupt Write Function

@@ -58,6 +58,7 @@
 #define THREAD_PRIO_KNL_EMERGENCY_HANDLER      osPriorityNormal
 #define THREAD_PRIO_KNL_RTC_MONIT_HANDLER    osPriorityNormal
 #define THREAD_PRIO_WDT_HANDLER			osPriorityLow				// other thread can not set osPriorityLow!!!
+#define THREAD_PRIO_I2C_SLAVE_HANDLER			osPriorityBelowNormal
 
 //------------------------------------------------------------------------------
 //! Thread Stack Size Setting
@@ -94,6 +95,7 @@
 #define THREAD_STACK_KNL_SD_HANDLER     2048
 #define THREAD_STACK_KNL_EMERGENCY_HANDLER     2048
 #define THREAD_STACK_RTC_MONIT			1024
+#define THREAD_STACK_I2C_SLAVE_HANDLER			1024
 
 //! APP Event Definition
 #define APP_REFRESH_EVENT				0
