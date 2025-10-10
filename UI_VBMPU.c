@@ -160,6 +160,7 @@ static uint8_t ubUI_DualViewExFlag;
 static uint8_t ubUI_StopUpdateStsBarFlag;
 uint8_t *pUI_BuConnectFlag[CAM_STSMAX];
 static uint8_t ubUI_DisScanMdFunc;
+//static volatile uint8_t g_ui_key_dispatch_in_progress;  //zhu
 
 //! Record
 static void UI_OsdLoadingDisplayThread(void const *argument);
@@ -650,6 +651,8 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 	sPRF_DrvMode_t tCurDrvMd = sPRF_TRX_MODE;
 	UI_CamNum_t tCamNum;
 #endif
+        //if (g_ui_key_dispatch_in_progress)
+           //     return;
 	//osMutexWait(UI_PUMutex, osWaitForever);
 	//UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
     osStatus uiMutexState = osMutexWait(UI_PUMutex, 0);
@@ -729,10 +732,7 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 		}
 		else
 			ubUI_UpdDtStsCnt = 0;
-		//osMutexRelease(UI_PUMutex);
-		//return;
-		  if (uiMutexState == osOK)
-            osMutexRelease(UI_PUMutex);
+			osMutexRelease(UI_PUMutex);
 			return;
 	}
 	else if(sPRF_APDIRECT_MODE == tUI_sPRFdrv)
@@ -749,6 +749,7 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 		tUI_sPRFdrv = tCurDrvMd;
 	}
 #endif
+	
 	switch(tUI_SyncAppState)
 	{
 		case APP_IDLE_STATE:
@@ -758,7 +759,7 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 			ubUI_SendMsg2AppFlag = TRUE;
 			if(FALSE == tUI_PuSetting.IconSts.ubShowLostLogoFlag)
 			{
-				UI_ShowLostLinkLogo(pThreadCnt);
+				//UI_ShowLostLinkLogo(pThreadCnt);
 				(*pThreadCnt)++;
 				goto END_UPDATESTS;
 			}
@@ -774,9 +775,7 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 			break;
 		case APP_PAIRING_STATE:
 			UI_DrawPairingStatusIcon();
-			//osMutexRelease(UI_PUMutex);
-			                    if (uiMutexState == osOK)
-                            osMutexRelease(UI_PUMutex);
+			osMutexRelease(UI_PUMutex);
 			return;
 		default:
 			break;
@@ -794,8 +793,7 @@ END_UPDATESTS:
 		tUI_GetLinkStsMsg.ubAPP_Event 		= APP_LINKSTATUS_REPORT_EVENT;
 		UI_SendMessageToAPP(&tUI_GetLinkStsMsg);
 	}
-	    if (uiMutexState == osOK)
-            osMutexRelease(UI_PUMutex);
+  osMutexRelease(UI_PUMutex);
 }
 //------------------------------------------------------------------------------
 void UI_EventHandles(UI_Event_t *ptEventPtr)
@@ -807,9 +805,11 @@ void UI_EventHandles(UI_Event_t *ptEventPtr)
 	{
 		case AKEY_EVENT:
 		case PKEY_EVENT:
+			//g_ui_key_dispatch_in_progress = 1;
 			osMutexWait(UI_PUMutex, osWaitForever);
 			UI_KeyEventExec(ptEventPtr->pvEvent);
 			osMutexRelease(UI_PUMutex);
+			//g_ui_key_dispatch_in_progress = 0;
 			break;
 		case SCANMODE_EVENT:
 			UI_ScanModeExec();
@@ -7157,7 +7157,8 @@ void UI_ShowLostLinkLogo(uint16_t *pThreadCnt)
 				break;
 		}
 	}
-	for(tCamNum = CAM1; tCamNum < tUI_PuSetting.ubTotalBuNum; tCamNum++)
+	uint8_t total_bu = (tUI_PuSetting.ubTotalBuNum < CAM_4T) ? tUI_PuSetting.ubTotalBuNum : CAM_4T;
+	for(tCamNum = CAM1; tCamNum < total_bu; tCamNum++)     //original  tUI_PuSetting.ubTotalBuNum
 	{
 		if(PS_ECO_MODE == tUI_CamStatus[tCamNum].tCamPsMode)
 		{
