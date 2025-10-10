@@ -44,7 +44,7 @@ const UI_KeyEventMap_t UiKeyEventMap[] =
 	{AKEY_MENU, 		25,			UI_MenuKey, 					BUZ_PlaySingleSound},
 	//{AKEY_MENU, 		0,			UI_EngModeKey,			BUZ_PlaySingleSound},				//UI_LeftArrowKey(menu)		//UI_CameraSettingMenu1Key
 	{AKEY_MENU, 		0,			UI_ShowSleepTimer,			BUZ_PlaySingleSound},
-	{AKEY_LEFT, 		0,			MenuExitHandler,			BUZ_PlaySingleSound},
+	{AKEY_LEFT, 		0,			UI_ShowMenuKey,			BUZ_PlaySingleSound},
 	//{AKEY_LEFT, 		30,			UI_LeftArrowLongKey,		BUZ_PlaySingleSound},
 	//{AKEY_LEFT, 		20,			UI_EngModeKey,				BUZ_PlaySingleSound},
 
@@ -74,8 +74,9 @@ const UI_KeyEventMap_t UiKeyEventMap[] =
 UI_State_t tUI_State;
 static APP_State_t tUI_SyncAppState;
 UI_BUStatus_t tUI_CamStatus[CAM_4T];
-//static UI_PUSetting_t tUI_PuSetting;
+//static UI_PUSetting_t tUI_PuSetting;  //original
 UI_PUSetting_t tUI_PuSetting;
+
 const static UI_MenuFuncPtr_t tUI_StateMap2MenuFunc[UI_STATE_MAX] =
 {
 	[UI_DISPLAY_STATE]			= UI_DisplayArrowKeyFunc,
@@ -363,6 +364,10 @@ void UI_OnInitDialog(void)
 		ulUI_LogoIndex = OSDLOGO_WIFIDT_ENY;
 #endif
 	OSD_LogoJpeg(ulUI_LogoIndex);
+	OSD_IMG_INFO tOsdImgInfo;
+	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);
+  tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);
+	osDelay(3000);
 	GPIO->GPIO_O0 	= 0;
 	GPIO->GPIO_O13 	= 0;
 	BUZ_PlayPowerOnSound();
@@ -645,9 +650,21 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 	sPRF_DrvMode_t tCurDrvMd = sPRF_TRX_MODE;
 	UI_CamNum_t tCamNum;
 #endif
-	osMutexWait(UI_PUMutex, osWaitForever);
-	UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
-
+	//osMutexWait(UI_PUMutex, osWaitForever);
+	//UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
+    osStatus uiMutexState = osMutexWait(UI_PUMutex, 0);
+    if (uiMutexState != osOK)
+    {
+            /*
+             * The UI event thread uses the same mutex when dispatching key
+             * presses.  If we block here waiting forever we can starve the
+             * key handler and make the keypad look dead.  By skipping this
+             * refresh when the mutex is busy we let the key task finish and
+             * retry the status update on the next tick.
+             */
+            return;
+    }
+    UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
 #if (APP_REC_FUNC_ENABLE && APP_PLAY_REMOTE_ENABLE)
     if( UI_RECFILE_PLAY == tUI_RecPlayAct.tPlaySts && KNL_SIM_FLD == tUI_RecPlayAct.tSimFld &&        
         ubKNL_GetCommLinkStatus(ubKNL_GetTXFldRole(pUI_RecFoldersInfo.uwRecFolderSelIdx)) == BB_LOST_LINK )
@@ -712,8 +729,11 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 		}
 		else
 			ubUI_UpdDtStsCnt = 0;
-		osMutexRelease(UI_PUMutex);
-		return;
+		//osMutexRelease(UI_PUMutex);
+		//return;
+		  if (uiMutexState == osOK)
+            osMutexRelease(UI_PUMutex);
+			return;
 	}
 	else if(sPRF_APDIRECT_MODE == tUI_sPRFdrv)
 	{
@@ -754,7 +774,9 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 			break;
 		case APP_PAIRING_STATE:
 			UI_DrawPairingStatusIcon();
-			osMutexRelease(UI_PUMutex);
+			//osMutexRelease(UI_PUMutex);
+			                    if (uiMutexState == osOK)
+                            osMutexRelease(UI_PUMutex);
 			return;
 		default:
 			break;
@@ -772,7 +794,8 @@ END_UPDATESTS:
 		tUI_GetLinkStsMsg.ubAPP_Event 		= APP_LINKSTATUS_REPORT_EVENT;
 		UI_SendMessageToAPP(&tUI_GetLinkStsMsg);
 	}
-	osMutexRelease(UI_PUMutex);
+	    if (uiMutexState == osOK)
+            osMutexRelease(UI_PUMutex);
 }
 //------------------------------------------------------------------------------
 void UI_EventHandles(UI_Event_t *ptEventPtr)
@@ -7807,6 +7830,12 @@ void UI_LoadDevStatusInfo(void)
 	SF_Read(ulUI_SFAddr, sizeof(UI_DeviceStatusInfo_t), (uint8_t *)&tUI_DevStsInfo);
 	memcpy(tUI_CamStatus, tUI_DevStsInfo.tBU_StatusInfo, (CAM_4T * sizeof(UI_BUStatus_t)));
 	memcpy(&tUI_PuSetting, &tUI_DevStsInfo.tPU_SettingInfo, sizeof(UI_PUSetting_t));
+  // ----------------------------------------------------
+	for (tCamNum = CAM1; tCamNum < CAM_4T; tCamNum++)
+  {
+     tUI_CamStatus[tCamNum].name[sizeof(tUI_CamStatus[tCamNum].name) - 1] = '\0';
+  }
+  // ----------------------------------------------------
 	printd(DBG_InfoLvl, "UI TAG:%s\n",tUI_DevStsInfo.cbUI_DevStsTag);
 	printd(DBG_InfoLvl, "UI VER:%s\n",tUI_DevStsInfo.cbUI_FwVersion);
 	if((strncmp(tUI_DevStsInfo.cbUI_DevStsTag, SF_AP_UI_SECTOR_TAG, sizeof(tUI_DevStsInfo.cbUI_DevStsTag) - 1)) ||
@@ -7826,11 +7855,18 @@ void UI_LoadDevStatusInfo(void)
 		UI_CLEAR_CALENDAR_TODEFU(tUI_PuSetting.RecInfo.tREC_Time, RECTIME_5MIN);
         REC_TimeSet(0,300);
 		tUI_PuSetting.tVdoMode = UI_PHOTOCAP_MODE;
-		tUI_PuSetting.VolLvL.tVOL_UpdateLvL		 = VOL_LVL3;		//volume
+		tUI_PuSetting.VolLvL.tVOL_UpdateLvL		 = VOL_LVL3;		//VOLUME
 		tUI_PuSetting.ubVibration = 1;      //  LOW
 		tUI_PuSetting.ubZoomLevel = 0;      //  OFF
 		tUI_PuSetting.ubLanguage = 0;       //  ENGLISH
-		tUI_PuSetting.ubMicroSensitivity = 3;
+		tUI_PuSetting.ubTempAlarmOn = 0; 		//	CLOSE
+		tUI_PuSetting.ubTempMax = 30;    		//  High Temp
+		tUI_PuSetting.ubTempMin = 10;    		//  Low Temp
+		tUI_PuSetting.ubKeyLockAutoActivate = 0; //NEVER
+		for(tCamNum = CAM1; tCamNum < CAM_4T; tCamNum++)
+    {
+        tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
+    }
 	}
 	tUI_PuSetting.ubTotalBuNum 				 = DISPLAY_MODE;
 	tUI_PuSetting.tAdoSrcCamNum				 = (tUI_PuSetting.tAdoSrcCamNum > CAM4)?CAM1:tUI_PuSetting.tAdoSrcCamNum;
@@ -7904,6 +7940,10 @@ void UI_LoadDevStatusInfo(void)
 		} else {
 				tUI_CamStatus[tCamNum].ulCAM_ID = INVALID_ID;
 			UI_ResetDevSetting(tCamNum);
+			sprintf(tUI_CamStatus[tCamNum].name, "BABY UNIT %d", tCamNum + 1); //zhu
+			tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
+			tUI_CamStatus[tCamNum].sleep_time_ms = 0;
+			tUI_CamStatus[tCamNum].priority = tCamNum;
 		}
 	}
 }
@@ -7918,7 +7958,7 @@ void UI_UpdateDevStatusInfo(void)
 	memcpy(tUI_DevStsInfo.cbUI_FwVersion, SN937XX_FW_VERSION, sizeof(tUI_DevStsInfo.cbUI_FwVersion) - 1);
 	memcpy(tUI_DevStsInfo.tBU_StatusInfo, tUI_CamStatus, (CAM_4T * sizeof(UI_BUStatus_t)));
 	memcpy(&tUI_DevStsInfo.tPU_SettingInfo, &tUI_PuSetting, sizeof(UI_PUSetting_t));
-	printf("\n--- SAVING TO FLASH ---\n");
+	printf("\n--- SAVING TO FLASH ---\n");//zhu
     printf("Tag to be saved: [%s]\n", tUI_DevStsInfo.cbUI_DevStsTag);
     printf("Version to be saved: [%s]\n", tUI_DevStsInfo.cbUI_FwVersion);
     printf("Vibration to be saved: %d\n", tUI_DevStsInfo.tPU_SettingInfo.ubVibration);
