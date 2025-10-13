@@ -57,6 +57,7 @@
 #define MENU_PAIRING_WITH_N65				 27
 #define MENU_BABY_UNIT_INFO					 28
 #define MENU_PAIR_MODE					 		 29
+#define MENU_SLEEP_HISTORY           30
 
 #define KEYBOARD_ROWS 3
 #define KEYBOARD_ROW_0_COLS 13
@@ -68,7 +69,7 @@
 const char* ENGLISH_KEYBOARD[KEYBOARD_ROWS][13] = {
     { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M" },
     { "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z" },
-		{ "SPACE", "DELETE", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
+		{ "/xC6", "/xD8", "/xC5", "SPACE", "DELETE", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
 };
 
 static char g_edit_name_buffer[32];
@@ -168,8 +169,29 @@ const uint8_t LANGUAGE_MENU_ITEM_COUNT = sizeof(LANGUAGE_MENU_POS) / sizeof(Poin
 
 //static uint8_t g_edit_mode = 0;  	0: navigation, 1: edit ±à¼­Ä£Ê½ÔÝ²»ÆôÓÃ
 
-static uint8_t g_sleeptimer_level = 0; //0: ON    sleeptimer items
+static uint8_t g_sleeptimer_level = 1; //0: ON    sleeptimer items
 static uint32_t g_sleep_timer_start_ms[CAM_4T] = {0};  //SLEEPTIME
+//Sleep history
+#define SLEEP_HISTORY_MAX 8
+
+static uint32_t g_sleep_history_ms[CAM_4T][SLEEP_HISTORY_MAX] = {0};
+static uint8_t  g_sleep_hist_count[CAM_4T] = {0};
+static uint8_t  g_sleep_hist_head[CAM_4T]  = {0};
+static uint8_t  g_hist_show_unit = 0;
+
+static void SleepHistory_Push(uint8_t unit, uint32_t ms)
+{
+    if (unit >= CAM_4T || ms == 0) return;
+    if (g_sleep_hist_count[unit] == 0) {
+        g_sleep_hist_head[unit] = 0;
+    } else {
+        g_sleep_hist_head[unit] = (uint8_t)((g_sleep_hist_head[unit] + 1) % SLEEP_HISTORY_MAX);
+    }
+    g_sleep_history_ms[unit][g_sleep_hist_head[unit]] = ms;
+    if (g_sleep_hist_count[unit] < SLEEP_HISTORY_MAX) {
+        g_sleep_hist_count[unit]++;
+    }
+}
 
 /*
 typedef struct{
@@ -1029,10 +1051,9 @@ void UI_CalculateSleepTimerMenuPositions(void)
 		printf("Setting SLEEPTIMER_MENU_Y_POS[0] to: %d\n", start_y);
 }
 //------------------------------------------------------------------------------
-
 void UI_ShowSleepTimer(void)
 {
-  MenuBackground(); 
+  MenuBackground();
 
   UI_DrawString("SLEEP TIMER", 220, 52);
 
@@ -1045,7 +1066,7 @@ void UI_ShowSleepTimer(void)
 	uint32_t current_ms = KNL_TIMER_Get1ms();	//get current time once
 	for(uint8_t i = 0; i < CAM_4T; i++)
   {
-      if(ubTRX_GetLinkStatus(i + 1)) 
+      if(ubTRX_GetLinkStatus(i)) 
       {
           UI_DrawString23(tUI_CamStatus[i].name, 72, current_y);
           UI_DrawString23("TIME", 320, current_y);
@@ -1082,7 +1103,7 @@ void UI_ShowSleepTimer(void)
 	{
       UI_DrawReverseString23("ON", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
   }
-	else 
+	else
 	{
       UI_DrawReverseString23("OFF", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
   }
@@ -1090,9 +1111,70 @@ void UI_ShowSleepTimer(void)
 	printf("SLEEPTIMER_MENU_Y_POS[0]: %d\n", SLEEPTIMER_MENU_Y_POS[0]);
   UI_Drawbox();
 }
+//------------------------------------------------------------------------------
 void UI_SleepHistory(void)
 {
-	
+    MenuBackground();
+    UI_DrawString("SLEEP HISTORY", 200, 52);
+
+    OSD_IMG_INFO ln;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    tOSD_Img2(&ln, OSD_QUEUE);
+
+    uint8_t unit = g_hist_show_unit;
+    uint8_t picked = 0;
+    for(int c = 0; c < CAM_4T; ++c) 
+		{
+        uint8_t u = (unit + c) % CAM_4T;
+        if (g_sleep_hist_count[u] > 0) { unit = u; picked = 1; break; }
+    }
+		
+    if(!picked)
+		{
+        for (int c = 0; c < CAM_4T; ++c) 
+				{
+            if (ubTRX_GetLinkStatus(c + 1)) { unit = c; picked = 1; break; }
+        }
+    }
+    g_hist_show_unit = unit;
+
+    char line[64];
+    snprintf(line, sizeof(line), "NAME: %s", tUI_CamStatus[unit].name);
+    UI_DrawString23(line, 52, 118);
+
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    ln.uwYStart = 140;
+    tOSD_Img2(&ln, OSD_QUEUE);
+
+    UI_DrawString23("NEWEST SLEEP TIMES", 52, 165);
+
+    uint16_t y = 205;
+    if (g_sleep_hist_count[unit] == 0) 
+		{
+        UI_DrawString23("-- NO HISTORY --", 52, y);
+        y += 25;
+    } 
+		else 
+		{
+        uint8_t cnt = g_sleep_hist_count[unit];
+        uint8_t idx = g_sleep_hist_head[unit];
+        for (uint8_t i = 0; i < cnt && i < 7; ++i) 
+				{
+            uint32_t ms = g_sleep_history_ms[unit][idx];
+            uint32_t total = ms / 1000;
+            uint8_t h = total / 3600;
+            uint8_t m = (total % 3600) / 60;
+            uint8_t s = total % 60;
+            snprintf(line, sizeof(line), "%02u.%02u.%02u%s",
+                     h, m, s, (i == 0 ? "  NEW" : ""));
+            UI_DrawString23(line, 52, y);
+            y += 25;
+            idx = (uint8_t)((idx + SLEEP_HISTORY_MAX - 1) % SLEEP_HISTORY_MAX);
+        }
+    }
+
+    UI_DrawString("EXIT", 52, 372);
+    UI_Drawbox();
 }
 //------------------------------------------------------------------------------
 void UI_ShowMicroSensitivity(void)
@@ -1282,7 +1364,8 @@ void UI_ShowBabyUnitDetail(uint8_t unit_index)
     uint16_t y = 180;
     char str[64];
 
-    sprintf(str, "NAME : %.*s", 20, tUI_CamStatus[unit_index].name);
+    //sprintf(str, "NAME : %.*s", 20, tUI_CamStatus[unit_index].name);
+		snprintf(str, sizeof(str), "NAME : %s", tUI_CamStatus[unit_index].name);
     UI_DrawString23(str, 52, 118);
 	
 		OSD_IMG_INFO tOsdImgInfoLine1;
@@ -1313,7 +1396,7 @@ void UI_ShowBabyUnitDetail(uint8_t unit_index)
             OSD_IMG_INFO tOsdImgInfoLine2;
 						tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine2);
 						tOsdImgInfoLine2.uwXStart = 40;
-						tOsdImgInfoLine2.uwYStart = 385;
+						tOsdImgInfoLine2.uwYStart = 370;
 						tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
 						UI_DrawString23("IF YOU ONLY WANT TO USE 1 BABY UNIT,", 52, 380);
 						UI_DrawString23("YOU CAN SET THIS BABY UNIT AS INACTIVE,", 52, 405);
@@ -1324,7 +1407,7 @@ void UI_ShowBabyUnitDetail(uint8_t unit_index)
             OSD_IMG_INFO tOsdImgInfoLine3;
 						tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine3);
 						tOsdImgInfoLine3.uwXStart = 40;
-						tOsdImgInfoLine3.uwYStart = 405;
+						tOsdImgInfoLine3.uwYStart = 395;
 						tOSD_Img2(&tOsdImgInfoLine3, OSD_QUEUE);
 						UI_DrawString23("THIS BABY UNIT IS NOW INACTIVE.", 52, 405);
 						UI_DrawString23("TURN THE BABY UNIT ON TO ACTVATE.", 52, 430);
@@ -1431,15 +1514,15 @@ void UI_ShowChangeName(void)
 		if (g_current_menu_index < 26) 
 		{
 				UI_Drawbox40();
-		} 
+		}
 		else if (g_current_menu_index == 26 || g_current_menu_index == 27) 
 		{
 				UI_Drawhalfbox();
-		} 
+		}
 		else 
 		{
 				UI_Drawbox();
-		}	
+		}
 }
 //------------------------------------------------------------------------------	
 void TemperatureAlarm(void)
@@ -1467,12 +1550,12 @@ void TemperatureAlarm(void)
 		{
 				UI_DrawString("TEMP LIMIT HIGH", 52, 158);
 				UI_DrawHalfWhiteSquare(508, 150);
-				sprintf(temp_str, "%d C", tUI_PuSetting.ubTempMax);
+				sprintf(temp_str, "%d" "/xB0" "C", tUI_PuSetting.ubTempMax);
         UI_DrawReverseString23(temp_str, 530, 158);
 			
 				UI_DrawString("TEMP LIMIT LOW", 52, 198);
 				UI_DrawHalfWhiteSquare(508, 190);
-				sprintf(temp_str, "%d C", tUI_PuSetting.ubTempMin);
+				sprintf(temp_str, "%d" "/xB0" "C", tUI_PuSetting.ubTempMin);
         UI_DrawReverseString23(temp_str, 530, 198);
 		}
 		
@@ -1492,7 +1575,7 @@ void UI_ShowSetLimitHigh(void)
 		tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
 		tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE);
 		
-		sprintf(temp_str, "ALARM LIMIT:%d", tUI_PuSetting.ubTempMax);
+		sprintf(temp_str, "ALARM LIMIT:%d" "/xB0", tUI_PuSetting.ubTempMax);
 		UI_DrawString23(temp_str, 55, 100);
 
 		OSD_IMG_INFO tOsdImgInfoLine2;
@@ -1513,7 +1596,7 @@ void UI_ShowSetLimitHigh(void)
         }
         
         for (int i = start; i < end; i++) {
-            sprintf(temp_str, "%d C", TEMP_HIGH_VALUES[i]);
+            sprintf(temp_str, "%d" "/xB0" "C", TEMP_HIGH_VALUES[i]);
             UI_DrawString(temp_str, TEMP_HIGH_MENU_POS[i].x + 55, TEMP_HIGH_MENU_POS[i].y + 8);
         }
         
@@ -1541,7 +1624,7 @@ void UI_ShowSetLimitLow(void)
 		tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
 		tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE);
 	
-		sprintf(temp_str, "ALARM LIMIT:%d", tUI_PuSetting.ubTempMin);
+		sprintf(temp_str, "ALARM LIMIT:%d" "/xB0", tUI_PuSetting.ubTempMin);
 		UI_DrawString23(temp_str, 55, 100);
 	
 		OSD_IMG_INFO tOsdImgInfoLine2;
@@ -1561,7 +1644,7 @@ void UI_ShowSetLimitLow(void)
         }
         
         for (int i = start; i < end; i++) {
-            sprintf(temp_str, "%d C", TEMP_LOW_VALUES[i]);
+            sprintf(temp_str, "%d" "/xB0" "C", TEMP_LOW_VALUES[i]);
             UI_DrawString(temp_str, TEMP_LOW_MENU_POS[i].x + 55, TEMP_LOW_MENU_POS[i].y + 8);
         }
         
@@ -1599,15 +1682,24 @@ void UI_InitEditNameBuffer(uint8_t unit_index)
 static void UI_Thread(void const *argument)
 {
 	static uint16_t uwUI_TaskCnt = 0;
+	static uint32_t lastStatusUpdateTime = 0;
 	while(1)
 	{
-		//UI_UpdateStatus(&uwUI_TaskCnt);		//refresh 
+		    if ((KNL_TIMER_Get1ms() - lastStatusUpdateTime) >= 1000) 
+        {
+            lastStatusUpdateTime = KNL_TIMER_Get1ms();
+            if (g_is_menu_visible == 0)
+            {
+                UI_UpdateStatus(&uwUI_TaskCnt);
+            }
+        }
+		//UI_UpdateStatus(&uwUI_TaskCnt);		refresh 
 		#ifdef VBM_PU
 			//printf("UI_Thread:  AntLvl[%d]\n", ulKNL_GetFps(KNL_BB_FRM_OK, KNL_SRC_1_MAIN));
-			if (g_is_menu_visible == 0)
-			{
-				UI_UpdateStatus(&uwUI_TaskCnt);
-			}
+			//if (g_is_menu_visible == 0)
+			//{
+				//UI_UpdateStatus(&uwUI_TaskCnt);
+			//}
 		#endif
 		
 		osDelay(UI_TASK_PERIOD);
@@ -1695,7 +1787,7 @@ void UI_DrawString(const char *str, uint16_t startX, uint16_t startY)
 
     for (i = 0; str[i] != '\0'; ++i)
     {
-        char character = str[i];
+        unsigned char character = str[i];
         uint16_t imageIndex = 0;
 
         switch (character)
@@ -1737,6 +1829,11 @@ void UI_DrawString(const char *str, uint16_t startX, uint16_t startY)
             case '7': imageIndex = OSD2IMG_N80_NUM7; break;
             case '8': imageIndex = OSD2IMG_N80_NUM8; break;
             case '9': imageIndex = OSD2IMG_N80_NUM9; break;
+						case '%': imageIndex = OSD2IMG_PERCENT31; break;
+            case '-': imageIndex = OSD2IMG_NEGATIVE31; break;
+						case '/': imageIndex = OSD2IMG_BACKSLASH31; break;
+						case ':': imageIndex = OSD2IMG_COLON31; break;
+						case (char)176: imageIndex = OSD2IMG_TEMP31; break;
             default: continue; 
         }
 
@@ -1766,7 +1863,7 @@ void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY)
 
     for (i = 0; str[i] != '\0'; ++i)
     {
-        char character = str[i];
+        unsigned char character = str[i];
         uint16_t imageIndex = 0;
 
         switch (character)
@@ -1797,7 +1894,7 @@ void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY)
 						case 'X': imageIndex = OSD2IMG_R23_X; break;
 						case 'Y': imageIndex = OSD2IMG_R23_Y; break;
 						case 'Z': imageIndex = OSD2IMG_R23_Z; break;
-						case ' ': imageIndex = OSD2IMG_SPACE1; break;
+						case ' ': imageIndex = OSD2IMG_SPACE3; break;
 						case '0': imageIndex = OSD2IMG_R23_NUM0; break;
             case '1': imageIndex = OSD2IMG_R23_NUM1; break;
             case '2': imageIndex = OSD2IMG_R23_NUM2; break;
@@ -1808,6 +1905,11 @@ void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY)
             case '7': imageIndex = OSD2IMG_R23_NUM7; break;
             case '8': imageIndex = OSD2IMG_R23_NUM8; break;
             case '9': imageIndex = OSD2IMG_R23_NUM9; break;
+						case '%': imageIndex = OSD2IMG_PERCENTR23; break;
+            case '-': imageIndex = OSD2IMG_NEGATIVER23; break;
+						case '/': imageIndex = OSD2IMG_BACKSLASHR23; break;
+						case ':': imageIndex = OSD2IMG_COLONR23; break;
+						case (char)176: imageIndex = OSD2IMG_TEMPR23; break;
             default: continue; 
         }
 
@@ -1818,7 +1920,7 @@ void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY)
 
             tOSD_Img2(&tCharImgInfo, OSD_QUEUE);
 
-            currentX += tCharImgInfo.uwHSize; 
+            currentX += tCharImgInfo.uwHSize;
         }
     }
 }
@@ -1828,10 +1930,11 @@ void UI_DrawString23(const char *str, uint16_t startX, uint16_t startY)
     OSD_IMG_INFO tCharImgInfo;
     uint16_t currentX = startX;
     int i = 0;
-
+		uint8_t char_count = 0;
+	
     for (i = 0; str[i] != '\0'; ++i)
     {
-        char character = str[i];
+        unsigned char character = str[i];
         uint16_t imageIndex = 0;
 
         switch (character)
@@ -1862,7 +1965,7 @@ void UI_DrawString23(const char *str, uint16_t startX, uint16_t startY)
 						case 'X': imageIndex = OSD2IMG_PX23_X; break;
 						case 'Y': imageIndex = OSD2IMG_PX23_Y; break;
 						case 'Z': imageIndex = OSD2IMG_PX23_Z; break;
-						case ' ': imageIndex = OSD2IMG_SPACE1; break;
+						case ' ': imageIndex = OSD2IMG_SPACE2; break;
 						case '0': imageIndex = OSD2IMG_PX23_NUM0; break;
             case '1': imageIndex = OSD2IMG_PX23_NUM1; break;
             case '2': imageIndex = OSD2IMG_PX23_NUM2; break;
@@ -1873,6 +1976,19 @@ void UI_DrawString23(const char *str, uint16_t startX, uint16_t startY)
             case '7': imageIndex = OSD2IMG_PX23_NUM7; break;
             case '8': imageIndex = OSD2IMG_PX23_NUM8; break;
             case '9': imageIndex = OSD2IMG_PX23_NUM9; break;
+            case '%': imageIndex = OSD2IMG_PERCENT23; break;
+            case '-': imageIndex = OSD2IMG_NEGATIVE23; break;
+            case '.': imageIndex = OSD2IMG_PERIOD23; break;
+						case ',': imageIndex = OSD2IMG_COMMA23; break;
+						case '?': imageIndex = OSD2IMG_QUESTION23; break;
+						case '(': imageIndex = OSD2IMG_BRACKETLEFT23; break;
+						case ')': imageIndex = OSD2IMG_BRACKETRIGHT23; break;
+						case '/': imageIndex = OSD2IMG_BACKSLASH23; break;
+						case ':': imageIndex = OSD2IMG_COLON23; break;
+						case 0xB0: imageIndex = OSD2IMG_TEMP23; break;
+						case 0xC6: imageIndex = OSD2IMG_AE23; break;
+            case 0xD8: imageIndex = OSD2IMG_O_SLASH23; break;
+            case 0xC5: imageIndex = OSD2IMG_A_RING23;   break;
             default: continue; 
         }
 
@@ -1884,6 +2000,12 @@ void UI_DrawString23(const char *str, uint16_t startX, uint16_t startY)
             tOSD_Img2(&tCharImgInfo, OSD_QUEUE);
 
             currentX += tCharImgInfo.uwHSize; 
+						
+						if (++char_count >= 15)
+            {
+                osDelay(1);
+                char_count = 0;
+            }
         }
     }
 }
@@ -1989,7 +2111,7 @@ void UI_Drawbox40(void)
     horizontal_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    horizontal_line_info.uwYStart = g_rectangle_y + BOX_HEIGHT - horizontal_thickness - 4;
+    horizontal_line_info.uwYStart = g_rectangle_y + BOX_HEIGHT - horizontal_thickness - 3;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
     vertical_line_info.uwVSize = BOX_HEIGHT;
@@ -2026,7 +2148,7 @@ void UI_Drawbox140(void)
     horizontal_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    horizontal_line_info.uwYStart = g_rectangle_y + box_height - horizontal_line_info.uwVSize - 4;
+    horizontal_line_info.uwYStart = g_rectangle_y + box_height - horizontal_line_info.uwVSize - 3;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
     vertical_line_info.uwVSize = box_height;
@@ -2150,6 +2272,12 @@ void MoveboxDown(void)
 				 g_rectangle_y = 110 + (g_current_menu_index * 40);
 					break;
 
+			case MENU_SLEEP_HISTORY:
+				 g_current_menu_index = 0;
+				 g_rectangle_x = 40;
+				 g_rectangle_y = 365;
+				 break;
+			
 			case MENU_DISPLAYSETTINGS:
 				 g_current_menu_index = (g_current_menu_index + DISPLAYSETTINGS_MENU_ITEM_COUNT + 1) % DISPLAYSETTINGS_MENU_ITEM_COUNT;
 				 g_rectangle_y = DISPLAYSETTINGS_MENU_Y_POS[g_current_menu_index];
@@ -2301,6 +2429,12 @@ void MoveboxUp(void)
 					g_rectangle_y = 110 + (g_current_menu_index * 40);
 					break;
 		 
+		case MENU_SLEEP_HISTORY:
+					g_current_menu_index = 0;
+					g_rectangle_x = 40;
+					g_rectangle_y = 365;
+					break;
+		
 		case MENU_DISPLAYSETTINGS:
 				 g_current_menu_index = (g_current_menu_index + DISPLAYSETTINGS_MENU_ITEM_COUNT - 1) % DISPLAYSETTINGS_MENU_ITEM_COUNT;
 				 g_rectangle_y = DISPLAYSETTINGS_MENU_Y_POS[g_current_menu_index];
@@ -2723,20 +2857,19 @@ void EnterKeyHandler(void)
             {
                 case 0: // ON/OFF
                     g_sleeptimer_level = !g_sleeptimer_level;
-            if (g_sleeptimer_level == 0) 
-						{ //ON
-                //start
-                for (int i = 0; i < CAM_4T; i++) 
-								{
-                    if (ubTRX_GetLinkStatus(i + 1))
-										{
-                        g_sleep_timer_start_ms[i] = KNL_TIMER_Get1ms();
-                    }
-                }
-            } 
-						else 
-						{ //OFF
-                // stop
+										if (g_sleeptimer_level == 0) //ON
+										{ 
+												//start
+												for (int i = 0; i < CAM_4T; i++) 
+												{
+														if (ubTRX_GetLinkStatus(i))
+														{
+																g_sleep_timer_start_ms[i] = KNL_TIMER_Get1ms();
+														}
+												}
+										} 
+						else //OFF
+						{
                 for (int i = 0; i < CAM_4T; i++) 
 								{
                     if (g_sleep_timer_start_ms[i] > 0) 
@@ -2751,19 +2884,35 @@ void EnterKeyHandler(void)
                     break;
                     
                 case 1: // STOP
-            g_sleeptimer_level = 1; // OFF
-            //stop and save timer
-            for (int i = 0; i < CAM_4T; i++) {
-                if (g_sleep_timer_start_ms[i] > 0) {
-                    uint32_t elapsed_ms = KNL_TIMER_Get1ms() - g_sleep_timer_start_ms[i];
-                    tUI_CamStatus[i].sleep_time_ms += elapsed_ms;
-                    g_sleep_timer_start_ms[i] = 0;
-                }
-            }
-            g_settings_changed = 1;
+										g_sleeptimer_level = 1; // OFF
+										//stop and save timer
+										for (int i = 0; i < CAM_4T; i++) 
+										{
+												if (g_sleep_timer_start_ms[i] > 0) 
+												{
+														uint32_t elapsed_ms = KNL_TIMER_Get1ms() - g_sleep_timer_start_ms[i];
+														tUI_CamStatus[i].sleep_time_ms += elapsed_ms;
+														g_sleep_timer_start_ms[i] = 0;
+												}
+										}
+										
+										for (int i = 0; i < CAM_4T; i++) 
+										{
+												if (tUI_CamStatus[i].sleep_time_ms > 0) 
+												{
+														SleepHistory_Push(i, tUI_CamStatus[i].sleep_time_ms);
+														tUI_CamStatus[i].sleep_time_ms = 0;
+												}
+										}
+										
+										g_settings_changed = 1;
                     break;
                     
                 case 2: // SLEEP HISTORY
+										 g_current_menu_level = MENU_SLEEP_HISTORY;
+										 g_current_menu_index = 0;
+										 g_rectangle_x = 40;
+										 g_rectangle_y = 365;
                     break;
                     
                 case 3: // EXIT SETTINGS SLEEP TIMER
@@ -2775,6 +2924,10 @@ void EnterKeyHandler(void)
             }
             break;
 						
+				case MENU_SLEEP_HISTORY:
+						MenuExitHandler();
+						break;
+
 				case MENU_DISPLAYSETTINGS:
 						switch(g_current_menu_index)
 						{
@@ -3147,6 +3300,14 @@ void MenuExitHandler(void)
         g_current_menu_index = 3; // cursor positioning "SLEEP TIMER"
         g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
 		}
+		else if (g_current_menu_level == MENU_SLEEP_HISTORY)
+		{
+				g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
+				g_current_menu_index = 2; 
+				UI_CalculateSleepTimerMenuPositions();
+				g_rectangle_x = 40;
+				g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+		}
 		else if(g_current_menu_level == MENU_DISPLAYSETTINGS)
 		{
 				g_current_menu_level = 4; // Back SETTINGS
@@ -3449,6 +3610,10 @@ void UI_RefreshScreen(void)
 			else if(g_current_menu_level == MENU_BABY_UNIT_INFO)
 			{
 					UI_ShowBabyUnitInfo();
+			}
+			else if (g_current_menu_level == MENU_SLEEP_HISTORY)
+			{
+					UI_SleepHistory();
 			}
 	}
 
