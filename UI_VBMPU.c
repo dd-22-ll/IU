@@ -160,7 +160,6 @@ static uint8_t ubUI_DualViewExFlag;
 static uint8_t ubUI_StopUpdateStsBarFlag;
 uint8_t *pUI_BuConnectFlag[CAM_STSMAX];
 static uint8_t ubUI_DisScanMdFunc;
-//static volatile uint8_t g_ui_key_dispatch_in_progress;  //zhu
 
 //! Record
 static void UI_OsdLoadingDisplayThread(void const *argument);
@@ -365,10 +364,11 @@ void UI_OnInitDialog(void)
 		ulUI_LogoIndex = OSDLOGO_WIFIDT_ENY;
 #endif
 	OSD_LogoJpeg(ulUI_LogoIndex);
-	OSD_IMG_INFO tOsdImgInfo;
+	OSD_IMG_INFO tOsdImgInfo;	  //Logo Image
 	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);
   tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);
 	osDelay(3000);
+	OSD_EraserImg1(&tOsdImgInfo);
 	GPIO->GPIO_O0 	= 0;
 	GPIO->GPIO_O13 	= 0;
 	BUZ_PlayPowerOnSound();
@@ -651,8 +651,6 @@ void UI_UpdateStatus(uint16_t *pThreadCnt)
 	sPRF_DrvMode_t tCurDrvMd = sPRF_TRX_MODE;
 	UI_CamNum_t tCamNum;
 #endif
-        //if (g_ui_key_dispatch_in_progress)
-           //     return;
 	//osMutexWait(UI_PUMutex, osWaitForever);
 	//UI_CLEAR_THREADCNT(tUI_PuSetting.IconSts.ubClearThdCntFlag, *pThreadCnt);
     osStatus uiMutexState = osMutexWait(UI_PUMutex, 0);
@@ -805,11 +803,9 @@ void UI_EventHandles(UI_Event_t *ptEventPtr)
 	{
 		case AKEY_EVENT:
 		case PKEY_EVENT:
-			//g_ui_key_dispatch_in_progress = 1;
 			osMutexWait(UI_PUMutex, osWaitForever);
 			UI_KeyEventExec(ptEventPtr->pvEvent);
 			osMutexRelease(UI_PUMutex);
-			//g_ui_key_dispatch_in_progress = 0;
 			break;
 		case SCANMODE_EVENT:
 			UI_ScanModeExec();
@@ -7820,6 +7816,14 @@ void UI_ResetDevSetting(UI_CamNum_t tCamNum)
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tREC_Resolution, 	RECRES_HD);
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tPHOTO_Func, 		PHOTOFUNC_OFF);
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tPHOTO_Resolution, PHOTORES_3M);
+	//zhu
+	tUI_CamStatus[tCamNum].sleep_time_ms = 0;
+  tUI_CamStatus[tCamNum].priority      = tCamNum;
+
+  tUI_CamStatus[tCamNum].sleep_hist_count = 0;
+  tUI_CamStatus[tCamNum].sleep_hist_head  = UI_SLEEP_HISTORY_DEPTH - 1;
+  memset(tUI_CamStatus[tCamNum].sleep_hist_ms, 0,
+         sizeof(tUI_CamStatus[tCamNum].sleep_hist_ms));
 }
 //------------------------------------------------------------------------------
 void UI_LoadDevStatusInfo(void)
@@ -7947,6 +7951,20 @@ void UI_LoadDevStatusInfo(void)
 			tUI_CamStatus[tCamNum].priority = tCamNum;
 		}
 	}
+  for (tCamNum = CAM1; tCamNum < DISPLAY_MODE; tCamNum++)
+  {
+      if (tUI_CamStatus[tCamNum].sleep_hist_count > UI_SLEEP_HISTORY_DEPTH)
+			{
+          tUI_CamStatus[tCamNum].sleep_hist_count = 0;
+          tUI_CamStatus[tCamNum].sleep_hist_head  = UI_SLEEP_HISTORY_DEPTH - 1;
+          memset(tUI_CamStatus[tCamNum].sleep_hist_ms, 0,
+                 sizeof(tUI_CamStatus[tCamNum].sleep_hist_ms));
+      }
+			else
+			{
+          tUI_CamStatus[tCamNum].sleep_hist_head %= UI_SLEEP_HISTORY_DEPTH;
+      }
+  }
 }
 //------------------------------------------------------------------------------
 void UI_UpdateDevStatusInfo(void)
