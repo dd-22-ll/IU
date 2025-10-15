@@ -29,6 +29,7 @@
 
 #ifdef VBM_PU
 #include "UI_VBMPU.h"
+extern UI_BUStatus_t tUI_CamStatus[CAM_4T];
 #endif
 #ifdef VBM_BU
 #include "UI_VBMBU.h"
@@ -58,23 +59,27 @@
 #define MENU_BABY_UNIT_INFO					 28
 #define MENU_PAIR_MODE					 		 29
 #define MENU_SLEEP_HISTORY           30
+#define MENU_SLEEP_HISTORY_VIEW      31
+#define MENU_SLEEP_HISTORY_OPTIONS   32
+
 
 #define KEYBOARD_ROWS 3
 #define KEYBOARD_ROW_0_COLS 13
-#define KEYBOARD_ROW_1_COLS 13  
-#define KEYBOARD_ROW_2_COLS 2
-#define TOTAL_KEYBOARD_KEYS 28
-#define TOTAL_MENU_ITEMS 30
+#define KEYBOARD_ROW_1_COLS 13
+#define KEYBOARD_ROW_2_COLS 6
+#define TOTAL_KEYBOARD_KEYS (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS + KEYBOARD_ROW_2_COLS)
+#define TOTAL_MENU_ITEMS (TOTAL_KEYBOARD_KEYS + 2)
 
 const char* ENGLISH_KEYBOARD[KEYBOARD_ROWS][13] = {
     { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M" },
     { "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z" },
-		{ "/xC6", "/xD8", "/xC5", "SPACE", "DELETE", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
+		{ "\xC6", "\xD8", "\xC5" "-" "SPACE", "DELETE", NULL, NULL, NULL, NULL, NULL, NULL, NULL}
 };
 
 static char g_edit_name_buffer[32];
 uint8_t g_edit_name_len = 0;
 static uint8_t g_name_cursor_pos = 0;
+
 //Language, Degree
 typedef struct {
     uint16_t x;
@@ -133,6 +138,12 @@ static uint8_t INFO_MENU_ITEM_COUNT = sizeof(INFO_MENU_Y_POS) / sizeof(uint16_t)
 // Sleep Timer(Level 7)
 static uint16_t SLEEPTIMER_MENU_Y_POS[] = {110, 150, 190, 230};
 static uint8_t SLEEPTIMER_MENU_ITEM_COUNT = sizeof(SLEEPTIMER_MENU_Y_POS) / sizeof(uint16_t);
+// Sleep history
+static const uint16_t SLEEPHIS_MAIN_Y_POS[] = {110, 150, 190};   // VIEW / OPTIONS / EXIT
+static const uint8_t  SLEEPHIS_MAIN_ITEM_COUNT = sizeof(SLEEPHIS_MAIN_Y_POS)/sizeof(uint16_t);
+// Sleep history option
+static const uint16_t SLEEPHIS_OPT_Y_POS[]  = {110, 150};        // DELETE / EXIT
+static const uint8_t  SLEEPHIS_OPT_ITEM_COUNT = sizeof(SLEEPHIS_OPT_Y_POS)/sizeof(uint16_t);
 // Display Settings(Level 9)
 static uint16_t DISPLAYSETTINGS_MENU_Y_POS[] = {110, 150, 190, 230, 270};
 static uint8_t DISPLAYSETTINGS_MENU_ITEM_COUNT = sizeof(DISPLAYSETTINGS_MENU_Y_POS) / sizeof(uint16_t);
@@ -182,30 +193,39 @@ static uint8_t  g_hist_show_unit = 0;
 static void SleepHistory_Push(uint8_t unit, uint32_t ms)
 {
     if (unit >= CAM_4T || ms == 0) return;
-    if (g_sleep_hist_count[unit] == 0) {
+    if (g_sleep_hist_count[unit] == 0)
+		{
         g_sleep_hist_head[unit] = 0;
-    } else {
+    } 
+		else
+		{
         g_sleep_hist_head[unit] = (uint8_t)((g_sleep_hist_head[unit] + 1) % SLEEP_HISTORY_MAX);
     }
     g_sleep_history_ms[unit][g_sleep_hist_head[unit]] = ms;
-    if (g_sleep_hist_count[unit] < SLEEP_HISTORY_MAX) {
+    if (g_sleep_hist_count[unit] < SLEEP_HISTORY_MAX) 
+		{
         g_sleep_hist_count[unit]++;
     }
 }
 
-/*
-typedef struct{
-	uint8_t is_connected; 
-  char name[20];                  
-  uint32_t sleep_time_ms;         
-  uint32_t last_update_time;      
-}BabyUnit_t;
+static void UI_SleepHist_Push(UI_CamNum_t cam, uint32_t dur_ms)
+{
+    if (dur_ms == 0) return;
+    UI_BUStatus_t *st = &tUI_CamStatus[cam];
+    uint8_t next = (st->sleep_hist_head + 1) % UI_SLEEP_HISTORY_DEPTH;
+    st->sleep_hist_head      = next;
+    st->sleep_hist_ms[next]  = dur_ms;
+    if (st->sleep_hist_count < UI_SLEEP_HISTORY_DEPTH)
+        st->sleep_hist_count++;
+}
 
-static BabyUnit_t g_baby_units[3] = {
-	{0, "BABY UNIT 1", 0, 0},
-  {0, "BABY UNIT 2", 0, 0}, 
-  {0, "BABY UNIT 3", 0, 0}
-};*/
+static void UI_SleepHist_Clear(UI_CamNum_t cam)
+{
+    UI_BUStatus_t *st = &tUI_CamStatus[cam];
+    memset(st->sleep_hist_ms, 0, sizeof(st->sleep_hist_ms));
+    st->sleep_hist_count = 0;
+    st->sleep_hist_head  = UI_SLEEP_HISTORY_DEPTH - 1;
+}
 
 static uint8_t g_selected_bu_index = 0;
 //------------------------------------------------------------------------------
@@ -259,7 +279,6 @@ void UI_PlugIn(void)
 #include "RC.h"
 extern RC_INFO tRC_Info[4];
 #ifdef VBM_PU
-extern UI_BUStatus_t tUI_CamStatus[CAM_4T];
 extern uint8_t demo_menu;
 extern UI_State_t tUI_State;
 uint8_t ui_show_delay = 15;
@@ -275,6 +294,7 @@ void UI_ShowMenuKey(void)
 		*/
     UI_RefreshScreen();
 }
+
 //------------------------------------------------------------------------------
 void UI_ShowMenu(void)
 {
@@ -1112,56 +1132,70 @@ void UI_ShowSleepTimer(void)
   UI_Drawbox();
 }
 //------------------------------------------------------------------------------
-void UI_SleepHistory(void)
+void UI_SleepHistoryMain(void)
 {
     MenuBackground();
-    UI_DrawString("SLEEP HISTORY", 200, 52);
+    UI_DrawString("SLEEP HISTORY", 205, 52);
 
     OSD_IMG_INFO ln;
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    uint8_t unit = g_hist_show_unit;
-    uint8_t picked = 0;
-    for(int c = 0; c < CAM_4T; ++c) 
+    UI_DrawString("VIEW SLEEP HISTORY", 52, SLEEPHIS_MAIN_Y_POS[0] + 8);
+    UI_DrawString("OPTIONS",            52, SLEEPHIS_MAIN_Y_POS[1] + 8);
+    UI_DrawString("EXIT",               52, SLEEPHIS_MAIN_Y_POS[2] + 8);
+
+    UI_Drawbox();
+}
+
+void UI_SleepHistoryView(void)
+{
+    MenuBackground();
+    UI_DrawString("SLEEP HISTORY", 205, 52);
+
+    OSD_IMG_INFO ln;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    tOSD_Img2(&ln, OSD_QUEUE);
+
+    extern UI_BUStatus_t tUI_CamStatus[];
+    uint8_t unit = 0;
+
+    for (int i = 0; i < CAM_4T; ++i) 
 		{
-        uint8_t u = (unit + c) % CAM_4T;
-        if (g_sleep_hist_count[u] > 0) { unit = u; picked = 1; break; }
+        if (tUI_CamStatus[i].sleep_hist_count > 0) { unit = i; break; }
     }
 		
-    if(!picked)
+    if (tUI_CamStatus[unit].sleep_hist_count == 0) 
 		{
-        for (int c = 0; c < CAM_4T; ++c) 
+        for (int i = 0; i < CAM_4T; ++i) 
 				{
-            if (ubTRX_GetLinkStatus(c + 1)) { unit = c; picked = 1; break; }
+            if (ubTRX_GetLinkStatus(i)) { unit = i; break; }
         }
     }
-    g_hist_show_unit = unit;
 
     char line[64];
     snprintf(line, sizeof(line), "NAME: %s", tUI_CamStatus[unit].name);
-    UI_DrawString23(line, 52, 118);
+    UI_DrawString23(line, 52, 108);
 
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
-    ln.uwYStart = 140;
+    ln.uwYStart = 160;
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    UI_DrawString23("NEWEST SLEEP TIMES", 52, 165);
+    uint16_t y = 175;
+    UI_BUStatus_t *st = &tUI_CamStatus[unit];
+    uint8_t cnt = st->sleep_hist_count;
 
-    uint16_t y = 205;
-    if (g_sleep_hist_count[unit] == 0) 
+    if (cnt == 0) 
 		{
-        UI_DrawString23("-- NO HISTORY --", 52, y);
-        y += 25;
+        UI_DrawString23("NO SLEEP TIMES RECORDED", 52, 130);
     } 
 		else 
 		{
-        uint8_t cnt = g_sleep_hist_count[unit];
-        uint8_t idx = g_sleep_hist_head[unit];
+        UI_DrawString23("NEWEST SLEEP TIMES", 52, 130);
+        uint8_t idx = st->sleep_hist_head;
         for (uint8_t i = 0; i < cnt && i < 7; ++i) 
 				{
-            uint32_t ms = g_sleep_history_ms[unit][idx];
-            uint32_t total = ms / 1000;
+            uint32_t total = st->sleep_hist_ms[idx] / 1000;
             uint8_t h = total / 3600;
             uint8_t m = (total % 3600) / 60;
             uint8_t s = total % 60;
@@ -1169,13 +1203,30 @@ void UI_SleepHistory(void)
                      h, m, s, (i == 0 ? "  NEW" : ""));
             UI_DrawString23(line, 52, y);
             y += 25;
-            idx = (uint8_t)((idx + SLEEP_HISTORY_MAX - 1) % SLEEP_HISTORY_MAX);
+            idx = (uint8_t)((idx + UI_SLEEP_HISTORY_DEPTH - 1) % UI_SLEEP_HISTORY_DEPTH);
         }
     }
 
-    UI_DrawString("EXIT", 52, 372);
+    UI_DrawString("EXIT", 52, 378);
     UI_Drawbox();
 }
+
+void UI_SleepHistoryOptions(void)
+{
+    MenuBackground();
+    UI_DrawString("SLEEP HISTORY", 205, 52);
+
+    OSD_IMG_INFO ln;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    tOSD_Img2(&ln, OSD_QUEUE);
+
+    UI_DrawString("DELETE SLEEP HISTORY", 52, SLEEPHIS_OPT_Y_POS[0] + 8);
+    UI_DrawString("EXIT",                 52, SLEEPHIS_OPT_Y_POS[1] + 8);
+
+    UI_Drawbox();
+}
+
+
 //------------------------------------------------------------------------------
 void UI_ShowMicroSensitivity(void)
 {
@@ -1346,9 +1397,12 @@ void UI_ShowBabyUnitSettings(void)
     if(displayed_count > 0)
     {
         UI_DrawString("CHANGE PRIORITY", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count] + 8);
+				UI_DrawString("EXIT", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count + 1] + 8);
     }
-    UI_DrawString("EXIT", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count + 1] + 8);
-
+    else
+		{
+			UI_DrawString("EXIT", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count] + 8);
+		}
     UI_Drawbox();
 }
 //------------------------------------------------------------------------------
@@ -1511,11 +1565,11 @@ void UI_ShowChangeName(void)
 		UI_DrawString23("SET AS NEW NAME", 52, 315);
 		UI_DrawString23("EXIT", 52, 355);
 		
-		if (g_current_menu_index < 26) 
+		if (g_current_menu_index < 30) 
 		{
 				UI_Drawbox40();
 		}
-		else if (g_current_menu_index == 26 || g_current_menu_index == 27) 
+		else if (g_current_menu_index == 30 || g_current_menu_index == 31) 
 		{
 				UI_Drawhalfbox();
 		}
@@ -1550,12 +1604,12 @@ void TemperatureAlarm(void)
 		{
 				UI_DrawString("TEMP LIMIT HIGH", 52, 158);
 				UI_DrawHalfWhiteSquare(508, 150);
-				sprintf(temp_str, "%d" "/xB0" "C", tUI_PuSetting.ubTempMax);
+				sprintf(temp_str, "%d" "\xB0" "C", tUI_PuSetting.ubTempMax);
         UI_DrawReverseString23(temp_str, 530, 158);
 			
 				UI_DrawString("TEMP LIMIT LOW", 52, 198);
 				UI_DrawHalfWhiteSquare(508, 190);
-				sprintf(temp_str, "%d" "/xB0" "C", tUI_PuSetting.ubTempMin);
+				sprintf(temp_str, "%d" "\xB0" "C", tUI_PuSetting.ubTempMin);
         UI_DrawReverseString23(temp_str, 530, 198);
 		}
 		
@@ -1575,7 +1629,7 @@ void UI_ShowSetLimitHigh(void)
 		tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
 		tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE);
 		
-		sprintf(temp_str, "ALARM LIMIT:%d" "/xB0", tUI_PuSetting.ubTempMax);
+		sprintf(temp_str, "ALARM LIMIT:%d" "\xB0", tUI_PuSetting.ubTempMax);
 		UI_DrawString23(temp_str, 55, 100);
 
 		OSD_IMG_INFO tOsdImgInfoLine2;
@@ -1596,7 +1650,7 @@ void UI_ShowSetLimitHigh(void)
         }
         
         for (int i = start; i < end; i++) {
-            sprintf(temp_str, "%d" "/xB0" "C", TEMP_HIGH_VALUES[i]);
+            sprintf(temp_str, "%d" "\xB0" "C", TEMP_HIGH_VALUES[i]);
             UI_DrawString(temp_str, TEMP_HIGH_MENU_POS[i].x + 55, TEMP_HIGH_MENU_POS[i].y + 8);
         }
         
@@ -1624,7 +1678,7 @@ void UI_ShowSetLimitLow(void)
 		tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
 		tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE);
 	
-		sprintf(temp_str, "ALARM LIMIT:%d" "/xB0", tUI_PuSetting.ubTempMin);
+		sprintf(temp_str, "ALARM LIMIT:%d" "\xB0", tUI_PuSetting.ubTempMin);
 		UI_DrawString23(temp_str, 55, 100);
 	
 		OSD_IMG_INFO tOsdImgInfoLine2;
@@ -1644,7 +1698,7 @@ void UI_ShowSetLimitLow(void)
         }
         
         for (int i = start; i < end; i++) {
-            sprintf(temp_str, "%d" "/xB0" "C", TEMP_LOW_VALUES[i]);
+            sprintf(temp_str, "%d" "\xB0" "C", TEMP_LOW_VALUES[i]);
             UI_DrawString(temp_str, TEMP_LOW_MENU_POS[i].x + 55, TEMP_LOW_MENU_POS[i].y + 8);
         }
         
@@ -1671,6 +1725,7 @@ void UI_InitEditNameBuffer(uint8_t unit_index)
     if (unit_index < 3)
     {
         strcpy(g_edit_name_buffer, tUI_CamStatus[unit_index].name);
+				//snprintf(g_edit_name_buffer, sizeof(g_edit_name_buffer), "%s", tUI_CamStatus[unit_index].name);
         g_edit_name_len = strlen(g_edit_name_buffer);
         g_name_cursor_pos = g_edit_name_len;
     }
@@ -1833,7 +1888,7 @@ void UI_DrawString(const char *str, uint16_t startX, uint16_t startY)
             case '-': imageIndex = OSD2IMG_NEGATIVE31; break;
 						case '/': imageIndex = OSD2IMG_BACKSLASH31; break;
 						case ':': imageIndex = OSD2IMG_COLON31; break;
-						case (char)176: imageIndex = OSD2IMG_TEMP31; break;
+						case 0xB0: imageIndex = OSD2IMG_TEMP31; break;
             default: continue; 
         }
 
@@ -1909,7 +1964,7 @@ void UI_DrawReverseString23(const char *str, uint16_t startX, uint16_t startY)
             case '-': imageIndex = OSD2IMG_NEGATIVER23; break;
 						case '/': imageIndex = OSD2IMG_BACKSLASHR23; break;
 						case ':': imageIndex = OSD2IMG_COLONR23; break;
-						case (char)176: imageIndex = OSD2IMG_TEMPR23; break;
+						case 0xB0: imageIndex = OSD2IMG_TEMPR23; break;
             default: continue; 
         }
 
@@ -2111,7 +2166,7 @@ void UI_Drawbox40(void)
     horizontal_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    horizontal_line_info.uwYStart = g_rectangle_y + BOX_HEIGHT - horizontal_thickness - 3;
+    horizontal_line_info.uwYStart = g_rectangle_y + 38;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
     vertical_line_info.uwVSize = BOX_HEIGHT;
@@ -2148,7 +2203,7 @@ void UI_Drawbox140(void)
     horizontal_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    horizontal_line_info.uwYStart = g_rectangle_y + box_height - horizontal_line_info.uwVSize - 3;
+    horizontal_line_info.uwYStart = g_rectangle_y + 38;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
     vertical_line_info.uwVSize = box_height;
@@ -2273,10 +2328,19 @@ void MoveboxDown(void)
 					break;
 
 			case MENU_SLEEP_HISTORY:
-				 g_current_menu_index = 0;
-				 g_rectangle_x = 40;
-				 g_rectangle_y = 365;
-				 break;
+					g_current_menu_index = (g_current_menu_index + 1) % SLEEPHIS_MAIN_ITEM_COUNT;
+					g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+					break;
+			
+			case MENU_SLEEP_HISTORY_OPTIONS:
+					g_current_menu_index = (g_current_menu_index + 1) % SLEEPHIS_OPT_ITEM_COUNT;
+					g_rectangle_y = SLEEPHIS_OPT_Y_POS[g_current_menu_index];
+					break;
+			
+			case MENU_SLEEP_HISTORY_VIEW:
+					g_current_menu_index = 0;
+					g_rectangle_y = 372;
+					break;
 			
 			case MENU_DISPLAYSETTINGS:
 				 g_current_menu_index = (g_current_menu_index + DISPLAYSETTINGS_MENU_ITEM_COUNT + 1) % DISPLAYSETTINGS_MENU_ITEM_COUNT;
@@ -2429,10 +2493,19 @@ void MoveboxUp(void)
 					g_rectangle_y = 110 + (g_current_menu_index * 40);
 					break;
 		 
-		case MENU_SLEEP_HISTORY:
+			case MENU_SLEEP_HISTORY:
+					g_current_menu_index = (g_current_menu_index + SLEEPHIS_MAIN_ITEM_COUNT - 1) % SLEEPHIS_MAIN_ITEM_COUNT;
+					g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+					break;
+			
+			case MENU_SLEEP_HISTORY_OPTIONS:
+					g_current_menu_index = (g_current_menu_index + SLEEPHIS_OPT_ITEM_COUNT - 1) % SLEEPHIS_OPT_ITEM_COUNT;
+					g_rectangle_y = SLEEPHIS_OPT_Y_POS[g_current_menu_index];
+					break;
+			
+			case MENU_SLEEP_HISTORY_VIEW:
 					g_current_menu_index = 0;
-					g_rectangle_x = 40;
-					g_rectangle_y = 365;
+					g_rectangle_y = 372;
 					break;
 		
 		case MENU_DISPLAYSETTINGS:
@@ -2789,7 +2862,7 @@ void EnterKeyHandler(void)
             }
             else if(connected_count == 1 || connected_count == 2)
             {
-                switch(g_current_menu_index) 
+                switch(g_current_menu_index)
                 {
                     case 0: /* connect new baby unit */ 
 												UI_UpdatePairUnitsMenuPositions();
@@ -2868,20 +2941,21 @@ void EnterKeyHandler(void)
 														}
 												}
 										} 
-						else //OFF
-						{
-                for (int i = 0; i < CAM_4T; i++) 
-								{
-                    if (g_sleep_timer_start_ms[i] > 0) 
-										{ // timer running
-                        uint32_t elapsed_ms = KNL_TIMER_Get1ms() - g_sleep_timer_start_ms[i];
-                        tUI_CamStatus[i].sleep_time_ms += elapsed_ms;
-                        g_sleep_timer_start_ms[i] = 0;		//reset start time
-                    }
-                }
-                g_settings_changed = 1; // save flag
-            }
-                    break;
+										else //OFF
+										{
+												for (int i = 0; i < CAM_4T; i++) 
+												{
+														if (g_sleep_timer_start_ms[i] > 0) 
+														{ // timer running
+																uint32_t elapsed_ms = KNL_TIMER_Get1ms() - g_sleep_timer_start_ms[i];
+																tUI_CamStatus[i].sleep_time_ms += elapsed_ms;
+																//UI_SleepHist_Push(i, elapsed_ms);
+																g_sleep_timer_start_ms[i] = 0;		//reset start time
+														}
+												}
+												//g_settings_changed = 1; // save flag
+										}
+										break;
                     
                 case 1: // STOP
 										g_sleeptimer_level = 1; // OFF
@@ -2892,6 +2966,7 @@ void EnterKeyHandler(void)
 												{
 														uint32_t elapsed_ms = KNL_TIMER_Get1ms() - g_sleep_timer_start_ms[i];
 														tUI_CamStatus[i].sleep_time_ms += elapsed_ms;
+														//UI_SleepHist_Push(i, elapsed_ms);
 														g_sleep_timer_start_ms[i] = 0;
 												}
 										}
@@ -2909,11 +2984,11 @@ void EnterKeyHandler(void)
                     break;
                     
                 case 2: // SLEEP HISTORY
-										 g_current_menu_level = MENU_SLEEP_HISTORY;
-										 g_current_menu_index = 0;
-										 g_rectangle_x = 40;
-										 g_rectangle_y = 365;
-                    break;
+										g_current_menu_level = MENU_SLEEP_HISTORY;
+										g_current_menu_index = 0;
+										g_rectangle_x = 40;
+										g_rectangle_y = SLEEPHIS_MAIN_Y_POS[0];
+										break;
                     
                 case 3: // EXIT SETTINGS SLEEP TIMER
 										MenuExitHandler();
@@ -2925,7 +3000,51 @@ void EnterKeyHandler(void)
             break;
 						
 				case MENU_SLEEP_HISTORY:
-						MenuExitHandler();
+						if (g_current_menu_index == 0)
+						{
+							g_current_menu_level = MENU_SLEEP_HISTORY_VIEW;
+							g_current_menu_index = 0;
+							g_rectangle_x = 40;
+							g_rectangle_y = 372;                  
+						} 
+						else if (g_current_menu_index == 1) 
+						{
+								g_current_menu_level = MENU_SLEEP_HISTORY_OPTIONS;
+								g_current_menu_index = 0;
+								g_rectangle_x = 40;
+								g_rectangle_y = SLEEPHIS_OPT_Y_POS[0];
+						} 
+						else 
+						{                                  
+								g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
+								g_current_menu_index = 2;
+								g_rectangle_x = 40;
+								g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+						}
+						break;
+
+				case MENU_SLEEP_HISTORY_VIEW:
+						g_current_menu_level = MENU_SLEEP_HISTORY;
+						g_current_menu_index = 0;                        
+						g_rectangle_x = 40;
+						g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+						break;
+
+				case MENU_SLEEP_HISTORY_OPTIONS:
+						if (g_current_menu_index == 0) 
+						{
+								for (int i = 0; i < CAM_4T; ++i) {
+										UI_SleepHist_Clear(i);
+								}
+								g_settings_changed = 1; 
+						} 
+						else 
+						{                               
+								g_current_menu_level = MENU_SLEEP_HISTORY;
+								g_current_menu_index = 1;
+								g_rectangle_x = 40;
+								g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+						}
 						break;
 
 				case MENU_DISPLAYSETTINGS:
@@ -3056,26 +3175,27 @@ void EnterKeyHandler(void)
           {
 							const char* selected = NULL;
             
-							if (g_current_menu_index < 13) // 1
+							if (g_current_menu_index < KEYBOARD_ROW_0_COLS) // 1
 							{
 									selected = ENGLISH_KEYBOARD[0][g_current_menu_index];
 							}
-							else if (g_current_menu_index < 26) // 2
+							else if (g_current_menu_index < KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS) // 2
 							{
-									selected = ENGLISH_KEYBOARD[1][g_current_menu_index - 13];
+									selected = ENGLISH_KEYBOARD[1][g_current_menu_index - KEYBOARD_ROW_0_COLS];
 							}
-							else if (g_current_menu_index < 28) // 3
+							else if (g_current_menu_index < TOTAL_KEYBOARD_KEYS) // 3
 							{
-									selected = ENGLISH_KEYBOARD[2][g_current_menu_index - 26];
+									selected = ENGLISH_KEYBOARD[2][g_current_menu_index - (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS)];
 							}
-							else if (g_current_menu_index == 28) // SET AS NEW NAME
+							else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS) // SET AS NEW NAME
 							{
 									strcpy(tUI_CamStatus[g_selected_bu_index].name, g_edit_name_buffer);
+								//snprintf(tUI_CamStatus[g_selected_bu_index].name, sizeof(tUI_CamStatus[g_selected_bu_index].name), "%s", g_edit_name_buffer);
 									g_settings_changed = 1;
 									MenuExitHandler();
 									break;
 							}
-							else if (g_current_menu_index == 29) // EXIT
+							else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS + 1) // EXIT
 							{
 									MenuExitHandler();
 									break;
@@ -3300,11 +3420,24 @@ void MenuExitHandler(void)
         g_current_menu_index = 3; // cursor positioning "SLEEP TIMER"
         g_rectangle_y = SETTINGS_MENU_Y_POS[g_current_menu_index];
 		}
+		else if (g_current_menu_level == MENU_SLEEP_HISTORY_VIEW)
+		{
+				g_current_menu_level = MENU_SLEEP_HISTORY;
+				g_current_menu_index = 0;
+				g_rectangle_x = 40;
+				g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+		}
+		else if (g_current_menu_level == MENU_SLEEP_HISTORY_OPTIONS)
+		{
+				g_current_menu_level = MENU_SLEEP_HISTORY;
+				g_current_menu_index = 1;
+				g_rectangle_x = 40;
+				g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+		}
 		else if (g_current_menu_level == MENU_SLEEP_HISTORY)
 		{
 				g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
-				g_current_menu_index = 2; 
-				UI_CalculateSleepTimerMenuPositions();
+				g_current_menu_index = 2;
 				g_rectangle_x = 40;
 				g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
 		}
@@ -3611,9 +3744,17 @@ void UI_RefreshScreen(void)
 			{
 					UI_ShowBabyUnitInfo();
 			}
-			else if (g_current_menu_level == MENU_SLEEP_HISTORY)
+			else if(g_current_menu_level == MENU_SLEEP_HISTORY)
 			{
-					UI_SleepHistory();
+					UI_SleepHistoryMain();
+			}
+			else if(g_current_menu_level == MENU_SLEEP_HISTORY_VIEW)
+			{
+					UI_SleepHistoryView();
+			}
+			else if(g_current_menu_level == MENU_SLEEP_HISTORY_OPTIONS)
+			{
+					UI_SleepHistoryOptions();
 			}
 	}
 
