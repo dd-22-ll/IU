@@ -39,6 +39,7 @@
 #define QUAD_TYPE_ITEM				6
 #define SCAN_TYPE_ITEM				5
 #define DUAL_TYPE_ITEM				4
+#define UI_SLEEP_HISTORY_DEPTH   8 
 
 typedef void (*pvUiFuncPtr)(void);
 
@@ -656,6 +657,7 @@ typedef struct
 	UI_CamsSetMode_t	  tCamCbrMode;
 	UI_CamsSetMode_t	  tCamCondenseMode;
 	UI_ColorParam_t		  tCamColorParam;
+	
 	struct
 	{
 		uint8_t			  ubMD_Mode;
@@ -663,7 +665,16 @@ typedef struct
 	}MdParam;
 	UI_PowerSaveMode_t	  tCamPsMode;
 	UI_CamsSetMode_t	  tCamScanMode;
-	uint8_t				  ubReserved[216];
+	
+	uint8_t             ubMicroSensitivity;		//zhu
+	char                name[20];
+  uint32_t            sleep_time_ms;
+  uint8_t             priority;
+	uint8_t             sleep_hist_count;		
+  uint8_t             sleep_hist_head;
+  uint32_t            sleep_hist_ms[UI_SLEEP_HISTORY_DEPTH];		//4*8
+	
+	uint8_t				  ubReserved[175];		//original 216
 }UI_BUStatus_t;
 
 typedef struct
@@ -708,11 +719,14 @@ typedef struct
 		uint8_t				ubWarnUpdateCnt;
 	}WarnIcon;
 	
+	uint8_t					ubReserved[214];		//reduce appropriately after change, original: 256, unchanged:  221
 	uint8_t					ubVibration;		//zhu
 	uint8_t					ubZoomLevel;
 	uint8_t					ubLanguage;
-	uint8_t					ubMicroSensitivity;	
-	uint8_t					ubReserved[221];		//reduce appropriately after change, original: 221
+	uint8_t         ubTempAlarmOn;
+  uint8_t         ubTempMax;
+  uint8_t         ubTempMin;
+	uint8_t         ubKeyLockAutoActivate;
 }UI_PUSetting_t;
 
 typedef struct
@@ -981,4 +995,3 @@ void UI_FSInfoInstall(void);
 void UI_TxFsCbFunc(uint8_t ubType);
 #endif
 #endif
-
