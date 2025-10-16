@@ -26,6 +26,7 @@
 #include "SF_API.h"
 #include "PAIR.h"
 #include "TRX_IF.h"
+#include "KNL.h"
 
 #ifdef VBM_PU
 #include "UI_VBMPU.h"
@@ -61,6 +62,7 @@ extern UI_BUStatus_t tUI_CamStatus[CAM_4T];
 #define MENU_SLEEP_HISTORY           30
 #define MENU_SLEEP_HISTORY_VIEW      31
 #define MENU_SLEEP_HISTORY_OPTIONS   32
+#define MENU_SLEEP_HISTORY_SELECT    33
 
 
 #define KEYBOARD_ROWS 3
@@ -76,6 +78,11 @@ const char* ENGLISH_KEYBOARD[KEYBOARD_ROWS][13] = {
 		{ "\xC6", "\xD8", "\xC5" "-" "SPACE", "DELETE", NULL, NULL, NULL, NULL, NULL, NULL, NULL}
 };
 
+//baby unit settings
+static uint8_t s_prev_buset_count = 0xFF;
+static uint8_t g_bu_idx_map[CAM_4T] = {0,0,0,0};
+
+//name
 static char g_edit_name_buffer[32];
 uint8_t g_edit_name_len = 0;
 static uint8_t g_name_cursor_pos = 0;
@@ -144,6 +151,9 @@ static const uint8_t  SLEEPHIS_MAIN_ITEM_COUNT = sizeof(SLEEPHIS_MAIN_Y_POS)/siz
 // Sleep history option
 static const uint16_t SLEEPHIS_OPT_Y_POS[]  = {110, 150};        // DELETE / EXIT
 static const uint8_t  SLEEPHIS_OPT_ITEM_COUNT = sizeof(SLEEPHIS_OPT_Y_POS)/sizeof(uint16_t);
+// Sleep history select
+static const uint16_t SLEEPHIS_BUSEL_Y_POS[] = {110, 150, 190, 372};
+static const uint8_t  SLEEPHIS_BUSEL_ITEM_COUNT = sizeof(SLEEPHIS_BUSEL_Y_POS)/sizeof(uint16_t);
 // Display Settings(Level 9)
 static uint16_t DISPLAYSETTINGS_MENU_Y_POS[] = {110, 150, 190, 230, 270};
 static uint8_t DISPLAYSETTINGS_MENU_ITEM_COUNT = sizeof(DISPLAYSETTINGS_MENU_Y_POS) / sizeof(uint16_t);
@@ -1041,95 +1051,141 @@ void UI_SpecialFeatures(void)
 	UI_Drawbox();
 }
 //------------------------------------------------------------------------------
-void UI_CalculateSleepTimerMenuPositions(void)
+static uint8_t s_prev_connected_count = 0xFF; 
+void UI_CalculateSleepTimerMenuPositions(uint8_t connected_count)
 {
     uint16_t start_y = 110;
-    
-    if (tUI_PuSetting.ubPairedBuNum == 0) {
-        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
-        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
-        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
-        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
-        //SLEEPTIMER_MENU_ITEM_COUNT = 4;
-    }
-    else if (tUI_PuSetting.ubPairedBuNum == 1) {
-        start_y += 25;
-        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
-        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
-        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
-        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
-        //SLEEPTIMER_MENU_ITEM_COUNT = 4;
-    }
-    else {
-        start_y += (tUI_PuSetting.ubPairedBuNum * 25 + 25); // ALL
-        SLEEPTIMER_MENU_Y_POS[0] = start_y;      // ON/OFF
-        SLEEPTIMER_MENU_Y_POS[1] = start_y + 40; // STOP
-        SLEEPTIMER_MENU_Y_POS[2] = start_y + 80; // SLEEP HISTORY
-        SLEEPTIMER_MENU_Y_POS[3] = start_y + 120; // EXIT
-        //SLEEPTIMER_MENU_ITEM_COUNT = 4;
-    }
-		printf("Setting SLEEPTIMER_MENU_Y_POS[0] to: %d\n", start_y);
+    uint8_t  show_all = (connected_count > 1);
+
+    uint16_t header_lines = (show_all ? 1 : 0) + connected_count;
+    start_y += (header_lines * 20) + 3;
+
+    SLEEPTIMER_MENU_Y_POS[0] = start_y;          // ON/OFF
+    SLEEPTIMER_MENU_Y_POS[1] = start_y + 40;     // STOP
+    SLEEPTIMER_MENU_Y_POS[2] = start_y + 80;     // SLEEP HISTORY
+    SLEEPTIMER_MENU_Y_POS[3] = start_y + 120;    // EXIT
 }
 //------------------------------------------------------------------------------
 void UI_ShowSleepTimer(void)
 {
-  MenuBackground();
+    MenuBackground();
+    UI_DrawString("SLEEP TIMER", 220, 52);
 
-  UI_DrawString("SLEEP TIMER", 220, 52);
+    OSD_IMG_INFO ln;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    tOSD_Img2(&ln, OSD_QUEUE);
 
-  OSD_IMG_INFO tOsdImgInfoLine;
-  tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine);
-  tOSD_Img2(&tOsdImgInfoLine, OSD_QUEUE);
-	
-	
-	uint16_t current_y = 118;
-	uint32_t current_ms = KNL_TIMER_Get1ms();	//get current time once
-	for(uint8_t i = 0; i < CAM_4T; i++)
-  {
-      if(ubTRX_GetLinkStatus(i)) 
-      {
-          UI_DrawString23(tUI_CamStatus[i].name, 72, current_y);
-          UI_DrawString23("TIME", 320, current_y);
-              
-          char time_str[10];
-          uint32_t display_time_ms = tUI_CamStatus[i].sleep_time_ms;
+    uint8_t connected_count = 0;
+    for (uint8_t i = 0; i < CAM_4T; i++)
+		{
+        if (ubTRX_GetLinkStatus(i)) connected_count++;
+    }
 
-          // if time runnig caculate its count
-          if (g_sleeptimer_level == 0 && g_sleep_timer_start_ms[i] > 0) {
-              display_time_ms += (current_ms - g_sleep_timer_start_ms[i]);
-          }
+    uint16_t y = 100;
+    uint8_t show_all = (connected_count > 1);
 
-          //format and show time
-          uint32_t total_seconds = display_time_ms / 1000;
-          uint8_t hours = total_seconds / 3600;
-          uint8_t minutes = (total_seconds % 3600) / 60;
-          uint8_t seconds = total_seconds % 60;
-          sprintf(time_str, "%02d:%02d:%02d", hours, minutes, seconds);
-          UI_DrawString23(time_str, 380, current_y);
-              
-          current_y += 25;
-      }
-  }
-	
-  UI_CalculateSleepTimerMenuPositions();
+    if (show_all) {
+        UI_DrawString23("ALL", 52, y);
+        y += 20;
+    }
 
-  UI_DrawString("ON/OFF", 52, SLEEPTIMER_MENU_Y_POS[0] + 8);
-  UI_DrawString("STOP", 52, SLEEPTIMER_MENU_Y_POS[1] + 8);
-  UI_DrawString("SLEEP HISTORY", 52, SLEEPTIMER_MENU_Y_POS[2] + 8);
-  UI_DrawString("EXIT", 52, SLEEPTIMER_MENU_Y_POS[3] + 8);
+    uint32_t now_ms = KNL_TIMER_Get1ms();
+    for (uint8_t i = 0; i < CAM_4T; i++)
+		{
+        if (!ubTRX_GetLinkStatus(i)) continue;
 
-  UI_DrawHalfWhiteSquare(508, SLEEPTIMER_MENU_Y_POS[0]);
-  if (g_sleeptimer_level == 0) 
-	{
-      UI_DrawReverseString23("ON", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
-  }
-	else
-	{
-      UI_DrawReverseString23("OFF", 530, SLEEPTIMER_MENU_Y_POS[0] + 10);
-  }
-	printf("ubPairedBuNum: %d\n", tUI_PuSetting.ubPairedBuNum);
-	printf("SLEEPTIMER_MENU_Y_POS[0]: %d\n", SLEEPTIMER_MENU_Y_POS[0]);
-  UI_Drawbox();
+        UI_DrawString23(tUI_CamStatus[i].name, 72, y);
+        UI_DrawString23("TIME", 320, y);
+
+        uint32_t disp_ms = tUI_CamStatus[i].sleep_time_ms;
+        if (g_sleeptimer_level == 0 && g_sleep_timer_start_ms[i] > 0)
+				{
+            disp_ms += (now_ms - g_sleep_timer_start_ms[i]);
+        }
+        char ts[10];
+        uint32_t s = disp_ms / 1000;
+        uint8_t hh = s / 3600, mm = (s % 3600) / 60, ss = s % 60;
+        sprintf(ts, "%02u:%02u:%02u", hh, mm, ss);
+        UI_DrawString23(ts, 380, y);
+
+        y += 20;
+    }
+
+		if (connected_count > 0)
+		{
+				if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln) == OSD_OK) 
+				{
+						ln.uwYStart = y + 5;
+						tOSD_Img2(&ln, OSD_QUEUE);
+				}
+		}
+
+    UI_CalculateSleepTimerMenuPositions(connected_count);
+
+		if (s_prev_connected_count != connected_count)
+		{
+				if (g_current_menu_level == MENU_LEVEL_SLEEP_TIMER)
+				{
+						if (g_current_menu_index > 3) g_current_menu_index = 0;
+						g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+						g_rectangle_x = 40;
+				}
+				s_prev_connected_count = connected_count;
+		}
+
+    UI_DrawString("ON/OFF",         52, SLEEPTIMER_MENU_Y_POS[0] + 8);
+    UI_DrawString("STOP",           52, SLEEPTIMER_MENU_Y_POS[1] + 8);
+    UI_DrawString("SLEEP HISTORY",  52, SLEEPTIMER_MENU_Y_POS[2] + 8);
+    UI_DrawString("EXIT",           52, SLEEPTIMER_MENU_Y_POS[3] + 8);
+
+    UI_DrawHalfWhiteSquare(508, SLEEPTIMER_MENU_Y_POS[0]);
+    UI_DrawReverseString23((g_sleeptimer_level == 0) ? "ON" : "OFF",
+                           530, SLEEPTIMER_MENU_Y_POS[0] + 8);
+
+		printf("ubPairedBuNum: %d\n", tUI_PuSetting.ubPairedBuNum);
+    UI_Drawbox();
+}
+//------------------------------------------------------------------------------
+static uint8_t UI_GetSleepHistorySelectItemCount(void)
+{
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < CAM_4T; i++)
+    {
+        if (ubTRX_GetLinkStatus(i))
+            count++;
+    }
+    return count == 0 ? 1 : count + 1; // +1 for EXIT
+}
+
+void UI_SleepHistorySelect(void)
+{
+    MenuBackground();
+    UI_DrawString("SLEEP HISTORY", 205, 52);
+
+    OSD_IMG_INFO ln;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
+    tOSD_Img2(&ln, OSD_QUEUE);
+
+    uint8_t bu_count = 0;
+
+    for (uint8_t i = 0; i < CAM_4T; i++)
+    {
+        if (ubTRX_GetLinkStatus(i))
+        {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "BABY UNIT %d", i + 1);
+            UI_DrawString(buf, 52, SLEEPHIS_BUSEL_Y_POS[bu_count]);
+            bu_count++;
+        }
+    }
+
+    UI_DrawString("EXIT", 52, SLEEPHIS_BUSEL_Y_POS[bu_count] + 3);
+
+    if (g_current_menu_index > bu_count)
+        g_current_menu_index = bu_count;
+
+    g_rectangle_y = SLEEPHIS_BUSEL_Y_POS[g_current_menu_index];
+    UI_Drawbox();
 }
 //------------------------------------------------------------------------------
 void UI_SleepHistoryMain(void)
@@ -1262,40 +1318,18 @@ void UI_ShowMicroSensitivity(void)
 //------------------------------------------------------------------------------
 void DisplaySettings(void)
 {
-	MenuBackground();
+	char value_str[10];
 	
 	OSD_IMG_INFO tInfor;
-	tInfor.uwHSize = 215;	//width
-	tInfor.uwVSize = 298;
-	tInfor.uwXStart = 399;
+	tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_DISPLAYSETTINGSMENU, 1, &tInfor);
+	tInfor.uwXStart = 26;
 	tInfor.uwYStart = 26;
-	OSD_EraserImg1(&tInfor);
-	
-	OSD_IMG_INFO tInfor1;
-	tInfor1.uwHSize = 588;	//width
-	tInfor1.uwVSize = 130;
-	tInfor1.uwXStart = 26;
-	tInfor1.uwYStart = 324;
-	OSD_EraserImg1(&tInfor1);
+  tOSD_Img1(&tInfor, OSD_QUEUE);
 	
 	OSD_IMG_INFO tOsdImgInfoLine1;
 	tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
 	tOsdImgInfoLine1.uwHSize = 343;
   tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE);
-	
-	OSD_IMG_INFO tOsdImgInfoLine2;
-	tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_MENUHLINE, 1, &tOsdImgInfoLine2);
-	tOsdImgInfoLine2.uwXStart = 28;
-	tOsdImgInfoLine2.uwYStart = 323;
-	tOsdImgInfoLine2.uwHSize = 373;
-  tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
-	
-	OSD_IMG_INFO tOsdImgInfoLine3;
-	tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_MENUVLINE, 1, &tOsdImgInfoLine3);
-	tOsdImgInfoLine3.uwXStart = 399;
-	tOsdImgInfoLine3.uwYStart = 26;
-	tOsdImgInfoLine3.uwHSize = 298;
-  tOSD_Img2(&tOsdImgInfoLine3, OSD_QUEUE);
 	
 	UI_DrawString("DISPLAY SETTINGS", 42, 52);
   UI_DrawString("LCD BRIGHTNESS", 52, 118);
@@ -1304,11 +1338,30 @@ void DisplaySettings(void)
 	UI_DrawString("ADVANCED", 52, 238);
 	UI_DrawString("EXIT", 52, 278);
 	
-	UI_DrawHalfWhiteSquare68(331, 110);
-	UI_DrawHalfWhiteSquare68(331, 150);
-	UI_DrawHalfWhiteSquare68(331, 190);
+	//UI_DrawHalfWhiteSquare68(331, 110);
+	//UI_DrawHalfWhiteSquare68(331, 150);
+	//UI_DrawHalfWhiteSquare68(331, 190);
 	
-	UI_Drawhalfbox();
+	sprintf(value_str, "%d", tUI_PuSetting.ubLcdBrightness);
+  UI_DrawReverseString23(value_str, 340, 120);
+
+  if (tUI_PuSetting.ubZoomLevel == 0)
+	{
+      UI_DrawReverseString23("OFF", 330, 160);
+  }
+	else
+	{
+      UI_DrawReverseString23("2X", 335, 160);
+  }
+  switch (tUI_PuSetting.ubFlipImage)
+	{
+      case 0: UI_DrawReverseString23("0""\xB0", 340, 200); break;
+      case 1: UI_DrawReverseString23("90""\xB0", 335, 200); break;
+      case 2: UI_DrawReverseString23("180""\xB0", 330, 200); break;
+      case 3: UI_DrawReverseString23("270""\xB0", 330, 200); break;
+  }
+	
+	UI_Drawbox341();
 }
 //------------------------------------------------------------------------------
 void AdvancedDisplaySettings(void)
@@ -1339,24 +1392,44 @@ void AdvancedDisplaySettings(void)
 //------------------------------------------------------------------------------
 void UI_CalculateBabyUnitSettingsMenuPositions(void)
 {
-		uint8_t bu_count = 0;
-    for (uint8_t i = 0; i < CAM_4T; i++) 
+    uint8_t bu_count = 0;
+    for (uint8_t i = 0; i < CAM_4T; i++)
 		{
-				//uint32_t *Id = (uint32_t *)PAIR_GetId(i);
-        if(ubTRX_GetLinkStatus(i))// *Id != PAIR_INVALID_ID && *Id != 0 && *Id != 0xFFFFFFFF
+        if (ubTRX_GetLinkStatus(i)) 
 				{
+            g_bu_idx_map[bu_count] = i;
             bu_count++;
         }
     }
-		
-		BABYUNITSETTINGS_MENU_ITEM_COUNT = bu_count + 2;
+
+    if (bu_count == 0) 
+		{
+        BABYUNITSETTINGS_MENU_ITEM_COUNT = 1;
+    } 
+		else
+		{
+        BABYUNITSETTINGS_MENU_ITEM_COUNT = bu_count + 2;
+    }
 
     uint16_t y = 110;
-    for (uint8_t i = 0; i < BABYUNITSETTINGS_MENU_ITEM_COUNT; i++)
+    for (uint8_t i = 0; i < BABYUNITSETTINGS_MENU_ITEM_COUNT; i++) 
 		{
         BABYUNITSETTINGS_MENU_Y_POS[i] = y;
         y += 40;
     }
+		
+    if (g_current_menu_index >= BABYUNITSETTINGS_MENU_ITEM_COUNT) 
+		{
+        g_current_menu_index = BABYUNITSETTINGS_MENU_ITEM_COUNT - 1;
+    }
+
+    uint8_t need_realign = (s_prev_buset_count != bu_count);
+    if (need_realign && g_current_menu_level == MENU_BABYUNITSETTINGS)
+		{
+        g_rectangle_x = 40;
+        g_rectangle_y = BABYUNITSETTINGS_MENU_Y_POS[g_current_menu_index];
+    }
+    s_prev_buset_count = bu_count;
 }
 
 void UI_ShowBabyUnitSettings(void)
@@ -1375,34 +1448,41 @@ void UI_ShowBabyUnitSettings(void)
 		tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine);
 		tOSD_Img2(&tOsdImgInfoLine, OSD_QUEUE);
 	
-		char str[32];
-    uint8_t displayed_count = 0;
-		
-    for(uint8_t i = 0; i < CAM_4T; i++) 
-    {
-        //uint32_t *Id = (uint32_t *)PAIR_GetId(i);
-        if(ubTRX_GetLinkStatus(i))//*Id != PAIR_INVALID_ID && *Id != 0 && *Id != 0xFFFFFFFF
-        {
-            uint16_t current_y = BABYUNITSETTINGS_MENU_Y_POS[displayed_count];
-					
-						sprintf(str, "%.*s", 20, tUI_CamStatus[i].name);
-            UI_DrawString(str, 52, current_y + 8);
+		UI_CalculateBabyUnitSettingsMenuPositions();
 
-            sprintf(str, "PRIORITY : %d", displayed_count + 1);
-            UI_DrawString23(str, 390, current_y + 10);
+    char line[32];
+    uint8_t bu_count = (s_prev_buset_count == 0xFF) ? 0 : s_prev_buset_count; // ????????
+    uint8_t displayed = 0;
 
-            displayed_count++;
-        }
+    for (uint8_t k = 0; k < bu_count; k++) {
+        uint8_t ch = g_bu_idx_map[k];
+        uint16_t y = BABYUNITSETTINGS_MENU_Y_POS[k];
+
+        snprintf(line, sizeof(line), "%.*s", 20, tUI_CamStatus[ch].name);
+        UI_DrawString(line, 52, y + 8);
+
+        snprintf(line, sizeof(line), "PRIORITY : %d", k + 1);
+        UI_DrawString23(line, 390, y + 10);
+
+        displayed++;
     }
-    if(displayed_count > 0)
-    {
-        UI_DrawString("CHANGE PRIORITY", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count] + 8);
-				UI_DrawString("EXIT", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count + 1] + 8);
-    }
-    else
+
+    if (displayed > 0)
 		{
-			UI_DrawString("EXIT", 52, BABYUNITSETTINGS_MENU_Y_POS[displayed_count] + 8);
-		}
+        //CHANGE PRIORITY
+        UI_DrawString("CHANGE PRIORITY", 52,
+                      BABYUNITSETTINGS_MENU_Y_POS[displayed] + 8);
+        //EXIT
+        UI_DrawString("EXIT", 52,
+                      BABYUNITSETTINGS_MENU_Y_POS[displayed + 1] + 8);
+    } 
+		else
+		{
+        //EXIT
+        UI_DrawString("EXIT", 52,
+                      BABYUNITSETTINGS_MENU_Y_POS[0] + 8);
+    }
+
     UI_Drawbox();
 }
 //------------------------------------------------------------------------------
@@ -1418,8 +1498,8 @@ void UI_ShowBabyUnitDetail(uint8_t unit_index)
     uint16_t y = 180;
     char str[64];
 
-    //sprintf(str, "NAME : %.*s", 20, tUI_CamStatus[unit_index].name);
-		snprintf(str, sizeof(str), "NAME : %s", tUI_CamStatus[unit_index].name);
+    sprintf(str, "NAME : %.*s", 20, tUI_CamStatus[unit_index].name);
+		//snprintf(str, sizeof(str), "NAME : %s", tUI_CamStatus[unit_index].name);
     UI_DrawString23(str, 52, 118);
 	
 		OSD_IMG_INFO tOsdImgInfoLine1;
@@ -1556,7 +1636,13 @@ void UI_ShowChangeName(void)
     
     x = 52;
     y += 40;
-    for(int col = 0; col < KEYBOARD_ROW_2_COLS; col++)
+    for(int col = 0; col < 4; col++)
+    {
+        UI_DrawString23(ENGLISH_KEYBOARD[2][col], x, y);
+        x += 40;
+    }
+		
+    for(int col = 0; col < 2; col++)
     {
         UI_DrawString23(ENGLISH_KEYBOARD[2][col], x, y);
         x += 100;
@@ -1738,6 +1824,7 @@ static void UI_Thread(void const *argument)
 {
 	static uint16_t uwUI_TaskCnt = 0;
 	static uint32_t lastStatusUpdateTime = 0;
+	printf(">>> UI_Thread has started! <<<\n");
 	while(1)
 	{
 		    if ((KNL_TIMER_Get1ms() - lastStatusUpdateTime) >= 1000) 
@@ -1747,6 +1834,7 @@ static void UI_Thread(void const *argument)
             {
                 UI_UpdateStatus(&uwUI_TaskCnt);
             }
+						printf("Runtime name for CAM 1: [%s]\n", tUI_CamStatus[CAM1].name); 
         }
 		//UI_UpdateStatus(&uwUI_TaskCnt);		refresh 
 		#ifdef VBM_PU
@@ -2215,6 +2303,55 @@ void UI_Drawbox140(void)
     tOSD_Img2(&vertical_line_info, OSD_UPDATE);
 }
 //------------------------------------------------------------------------------
+void UI_Drawbox341(void)
+{
+    OSD_IMG_INFO horizontal_line_info;
+    OSD_IMG_INFO vertical_line_info;
+
+    // --- Define the target dimensions for the new box ---
+    const uint16_t target_width = 341;
+    const uint16_t target_height = 40;
+
+    // Fetch the image info for the line assets
+    if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &horizontal_line_info) != OSD_OK)
+    {
+        printf("Error: Failed to get horizontal line image info.\n");
+        return;
+    }
+    if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2VERTICALLINE, 1, &vertical_line_info) != OSD_OK)
+    {
+        printf("Error: Failed to get vertical line image info.\n");
+        return;
+    }
+    // --- Draw the four sides of the box with the new dimensions ---
+
+    // 1. Draw the TOP line
+    horizontal_line_info.uwHSize = target_width; // Set the width to our target
+    horizontal_line_info.uwXStart = g_rectangle_x;
+    horizontal_line_info.uwYStart = g_rectangle_y;
+    tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
+
+    // 2. Draw the BOTTOM line
+    horizontal_line_info.uwHSize = target_width; // Set the width again
+    horizontal_line_info.uwXStart = g_rectangle_x;
+    // Position it at the bottom edge
+    horizontal_line_info.uwYStart = g_rectangle_y + target_height - horizontal_line_info.uwVSize;
+    tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
+
+    // 3. Draw the LEFT line
+    vertical_line_info.uwVSize = target_height; // Set the height to our target
+    vertical_line_info.uwXStart = g_rectangle_x;
+    vertical_line_info.uwYStart = g_rectangle_y;
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
+
+    // 4. Draw the RIGHT line and trigger the screen update
+    vertical_line_info.uwVSize = target_height; // Set the height again
+    // Position it at the right edge
+    vertical_line_info.uwXStart = g_rectangle_x + target_width - vertical_line_info.uwHSize;
+    vertical_line_info.uwYStart = g_rectangle_y;
+    tOSD_Img2(&vertical_line_info, OSD_UPDATE); // Use OSD_UPDATE on the last call
+}
+//------------------------------------------------------------------------------
 void UI_DrawWhiteSquare(uint16_t x, uint16_t y)
 {
     OSD_IMG_INFO tOsdImgInfoblank;
@@ -2326,7 +2463,13 @@ void MoveboxDown(void)
 				 g_current_menu_index = (g_current_menu_index + 1) % tUI_PuSetting.ubPairedBuNum;
 				 g_rectangle_y = 110 + (g_current_menu_index * 40);
 					break;
-
+			
+      case MENU_SLEEP_HISTORY_SELECT:
+          uint8_t max = UI_GetSleepHistorySelectItemCount();
+          g_current_menu_index = (g_current_menu_index + 1) % max;
+          g_rectangle_y = SLEEPHIS_BUSEL_Y_POS[g_current_menu_index];
+          break;
+			
 			case MENU_SLEEP_HISTORY:
 					g_current_menu_index = (g_current_menu_index + 1) % SLEEPHIS_MAIN_ITEM_COUNT;
 					g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
@@ -2369,27 +2512,32 @@ void MoveboxDown(void)
         {
             g_current_menu_index = (g_current_menu_index + 1) % TOTAL_MENU_ITEMS;
             
-            if (g_current_menu_index < 13) // 1
+            if (g_current_menu_index < KEYBOARD_ROW_0_COLS) // 1
             {
                 g_rectangle_x = 40 + g_current_menu_index * 40;
                 g_rectangle_y = 160;
             }
-            else if (g_current_menu_index < 26) // 2
+            else if(g_current_menu_index < KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS) // 2
             {
-                g_rectangle_x = 40 + (g_current_menu_index - 13) * 40;
+                g_rectangle_x = 40 + (g_current_menu_index - KEYBOARD_ROW_0_COLS) * 40;
                 g_rectangle_y = 200;
             }
-            else if (g_current_menu_index < 28) // (SPACE DELETE)
+						else if(g_current_menu_index < KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS + 4)
+						{
+								g_rectangle_x = 40 + (g_current_menu_index - (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS)) * 40;
+                g_rectangle_y = 240;
+						}
+            else if(g_current_menu_index < TOTAL_KEYBOARD_KEYS) // (SPACE DELETE)
             {
-                g_rectangle_x = 40 + (g_current_menu_index - 26) * 100;
+                g_rectangle_x = 40*5 + (g_current_menu_index - (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS + 4)) * 100;
                 g_rectangle_y = 240;
             }
-            else if (g_current_menu_index == 28) // SET AS NEW NAME
+            else if(g_current_menu_index == TOTAL_KEYBOARD_KEYS) // SET AS NEW NAME
             {
                 g_rectangle_x = 40;
                 g_rectangle_y = 305;
             }
-            else if (g_current_menu_index == 29) // EXIT
+            else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS + 1) // EXIT
             {
                 g_rectangle_x = 40;
                 g_rectangle_y = 345;
@@ -2493,6 +2641,12 @@ void MoveboxUp(void)
 					g_rectangle_y = 110 + (g_current_menu_index * 40);
 					break;
 		 
+      case MENU_SLEEP_HISTORY_SELECT:
+          uint8_t max = UI_GetSleepHistorySelectItemCount();
+          g_current_menu_index = (g_current_menu_index + max - 1) % max;
+          g_rectangle_y = SLEEPHIS_BUSEL_Y_POS[g_current_menu_index];
+          break;
+			
 			case MENU_SLEEP_HISTORY:
 					g_current_menu_index = (g_current_menu_index + SLEEPHIS_MAIN_ITEM_COUNT - 1) % SLEEPHIS_MAIN_ITEM_COUNT;
 					g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
@@ -2535,27 +2689,32 @@ void MoveboxUp(void)
         {
             g_current_menu_index = (g_current_menu_index + TOTAL_MENU_ITEMS - 1) % TOTAL_MENU_ITEMS;
             
-            if (g_current_menu_index < 13) //1
+            if (g_current_menu_index < KEYBOARD_ROW_0_COLS) //1
             {
                 g_rectangle_x = 40 + g_current_menu_index * 40;
                 g_rectangle_y = 160;
             }
-            else if (g_current_menu_index < 26) //2
+            else if (g_current_menu_index < KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS) //2
             {
-                g_rectangle_x = 40 + (g_current_menu_index - 13) * 40;
+                g_rectangle_x = 40 + (g_current_menu_index - KEYBOARD_ROW_0_COLS) * 40;
                 g_rectangle_y = 200;
             }
-            else if (g_current_menu_index < 28) //3
+            else if (g_current_menu_index < KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS + 4) //3
             {
-                g_rectangle_x = 40 + (g_current_menu_index - 26) * 100;
+                g_rectangle_x = 40 + (g_current_menu_index - (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS)) * 40;
                 g_rectangle_y = 240;
             }
-            else if (g_current_menu_index == 28) //SET AS NEW NAME
+            else if(g_current_menu_index < TOTAL_KEYBOARD_KEYS) // (SPACE DELETE)
+            {
+                g_rectangle_x = 40*5 + (g_current_menu_index - (KEYBOARD_ROW_0_COLS + KEYBOARD_ROW_1_COLS + 4)) * 100;
+                g_rectangle_y = 240;
+            }
+            else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS) //SET AS NEW NAME
             {
                 g_rectangle_x = 40;
                 g_rectangle_y = 305;
             }
-            else if (g_current_menu_index == 29) //EXIT
+            else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS - 1) //EXIT
             {
                 g_rectangle_x = 40;
                 g_rectangle_y = 345;
@@ -2796,7 +2955,12 @@ void EnterKeyHandler(void)
                 case 3: // SLEEP TIMER
                     g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
                     g_current_menu_index = 0;
-										UI_CalculateSleepTimerMenuPositions();
+								    uint8_t connected_count = 0;
+										for (uint8_t i = 0; i < CAM_4T; ++i)
+										{
+											if (ubTRX_GetLinkStatus(i)) connected_count++;
+										}
+										UI_CalculateSleepTimerMenuPositions(connected_count);
 										g_rectangle_x = 40;
 										g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
                     break;
@@ -2984,7 +3148,7 @@ void EnterKeyHandler(void)
                     break;
                     
                 case 2: // SLEEP HISTORY
-										g_current_menu_level = MENU_SLEEP_HISTORY;
+										g_current_menu_level = MENU_SLEEP_HISTORY_SELECT;
 										g_current_menu_index = 0;
 										g_rectangle_x = 40;
 										g_rectangle_y = SLEEPHIS_MAIN_Y_POS[0];
@@ -2998,6 +3162,35 @@ void EnterKeyHandler(void)
                     break;
             }
             break;
+						
+				case MENU_SLEEP_HISTORY_SELECT:
+						uint8_t bu_count = 0;
+						for (uint8_t i = 0; i < CAM_4T; i++)
+						{
+								if (ubTRX_GetLinkStatus(i))
+								{
+										if (g_current_menu_index == bu_count)
+										{
+												g_hist_show_unit = i;
+												g_current_menu_level = MENU_SLEEP_HISTORY;
+												g_current_menu_index = 0;
+												g_rectangle_x = 40;
+												g_rectangle_y = SLEEPHIS_MAIN_Y_POS[0];
+										}
+										bu_count++;
+								}
+						}
+
+						// EXIT
+						if (g_current_menu_index == bu_count || bu_count == 0)
+						{
+								g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
+								g_current_menu_index = 2;
+								g_rectangle_x = 40;
+								g_rectangle_y = SLEEPTIMER_MENU_Y_POS[2];
+						}
+						break;
+
 						
 				case MENU_SLEEP_HISTORY:
 						if (g_current_menu_index == 0)
@@ -3051,16 +3244,28 @@ void EnterKeyHandler(void)
 						switch(g_current_menu_index)
 						{
 								case 0: // LCD BRIGHTNESS
-										
+										tUI_PuSetting.ubLcdBrightness++;
+										if (tUI_PuSetting.ubLcdBrightness > 3) 
+										{
+												tUI_PuSetting.ubLcdBrightness = 1;
+										}
+										const uint32_t brightness_levels[] = { 0x230, 0x600, 0xA00 };
+										LCD_BACKLIGHT_CTRL(brightness_levels[tUI_PuSetting.ubLcdBrightness - 1]);
+										g_settings_changed = 1;
 										break;
 
 								case 1: // DIGITAL ZOOM
-										
+										tUI_PuSetting.ubZoomLevel = !tUI_PuSetting.ubZoomLevel;
+										g_settings_changed = 1;
 										break;
 
 								case 2: // FLIP IMAGE
-										
-										//flip screen
+										tUI_PuSetting.ubFlipImage++;
+										if (tUI_PuSetting.ubFlipImage > 3)
+										{
+												tUI_PuSetting.ubFlipImage = 0;
+										}
+										g_settings_changed = 1;
 										break;
 
 								case 3: // ADVANCED
@@ -3098,16 +3303,25 @@ void EnterKeyHandler(void)
 				case MENU_BABYUNITSETTINGS:
 				{
 						uint8_t bu_count = 0;
-						//uint8_t bu_count = PAIR_GetPairedDevCnt();
 						for(uint8_t i = 0; i < CAM_4T; i++)
 						{
-							//uint32_t *Id = (uint32_t *)PAIR_GetId(i);
-							if(ubTRX_GetLinkStatus(i)) // *Id != PAIR_INVALID_ID && *Id != 0 && *Id != 0xFFFFFFFF
+							if(ubTRX_GetLinkStatus(i))
 							{
 								bu_count++;
 							}
 						}
-						if(g_current_menu_index < bu_count) //PAIR_GetPairedDevCnt(),tUI_PuSetting.ubPairedBuNum
+						
+						
+            if (bu_count == 0)
+            {
+                if (g_current_menu_index == 0)
+                {
+                     MenuExitHandler();
+                }
+                break;
+            }
+						
+						if(g_current_menu_index < bu_count)
 						{
 								uint8_t actual_unit_index = UI_GetActualUnitIndexFromMenuIndex(g_current_menu_index);
 								if(actual_unit_index != 0XFF)
@@ -3190,7 +3404,7 @@ void EnterKeyHandler(void)
 							else if (g_current_menu_index == TOTAL_KEYBOARD_KEYS) // SET AS NEW NAME
 							{
 									strcpy(tUI_CamStatus[g_selected_bu_index].name, g_edit_name_buffer);
-								//snprintf(tUI_CamStatus[g_selected_bu_index].name, sizeof(tUI_CamStatus[g_selected_bu_index].name), "%s", g_edit_name_buffer);
+									//snprintf(tUI_CamStatus[g_selected_bu_index].name, sizeof(tUI_CamStatus[g_selected_bu_index].name), "%s", g_edit_name_buffer);
 									g_settings_changed = 1;
 									MenuExitHandler();
 									break;
@@ -3435,6 +3649,13 @@ void MenuExitHandler(void)
 				g_rectangle_y = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
 		}
 		else if (g_current_menu_level == MENU_SLEEP_HISTORY)
+		{
+				g_current_menu_level = MENU_SLEEP_HISTORY_SELECT;
+				g_current_menu_index = 0;
+				g_rectangle_x = 40;
+				g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+		}
+		else if (g_current_menu_level == MENU_SLEEP_HISTORY_SELECT)
 		{
 				g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
 				g_current_menu_index = 2;
@@ -3756,6 +3977,10 @@ void UI_RefreshScreen(void)
 			{
 					UI_SleepHistoryOptions();
 			}
+      else if(g_current_menu_level == MENU_SLEEP_HISTORY_SELECT)
+      {
+          UI_SleepHistorySelect();
+      }
 	}
 
 	OSD_IMG_INFO tFakeInfo = {0};
