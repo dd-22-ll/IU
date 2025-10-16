@@ -43,7 +43,7 @@ extern unsigned char invalid_param;
 //! LCD GPIO
 #define LCDBL_ENABLE(en)		{	GPIO->GPIO_OE0 = en;	GPIO->GPIO_O0 = en; }		//PWM->PWM_EN2 	= en;	
 
-#define LCD_BACKLIGHT_CTRL(LvL)		(LvL = LvL)//(PWM->PWM2_HIGH_CNT = LvL)
+#define LCD_BACKLIGHT_CTRL(LvL)		(PWM->PWM2_HIGH_CNT = LvL)
 #define	LCD_PWR_ENABLE				(GPIO->GPIO_O2 = 0)	//output low
 #define	LCD_PWR_DISABLE				(GPIO->GPIO_O2 = 1)	//output high
 
@@ -83,4 +83,5 @@ extern unsigned char invalid_param;
 //! SF Write Protect use GPIO
 #define SF_WP_GPIN					14		//!14 is no wp pin
 #endif	//! End of #ifndef _BSP_CONFIG_H_
+
 
