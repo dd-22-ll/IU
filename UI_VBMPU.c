@@ -23,6 +23,7 @@
 #include "FWU_API.h"
 #include "TIMER.h"
 #include "VDO.h"
+#include "KNL.h"
 #include "LCD.h"
 #include "Buzzer.h"
 #include "PLY_API.h"
@@ -30,6 +31,32 @@
 #include "ADO.h"
 
 #define osUI_SIGNALS	0x66
+
+const OSD_WEIGHT_TYP transparency_levels[] = {
+    OSD_WEIGHT_8DIV8, // 0%
+    OSD_WEIGHT_6DIV8, // ~25%
+    OSD_WEIGHT_5DIV8, // ~37%
+    OSD_WEIGHT_3DIV8  // ~62%
+};
+
+#if defined(__CC_ARM) || defined(__ARMCC_VERSION) || defined(__ICCARM__)
+__weak void SEN_SetMirrorFlip(uint8_t ubMirror, uint8_t ubFlip)
+{
+        (void)ubMirror;
+        (void)ubFlip;
+}
+
+__weak void ISP_SetMirrorFlip(uint8_t ubMirror, uint8_t ubFlip)
+{
+        (void)ubMirror;
+        (void)ubFlip;
+}
+#else
+#define UI_WEAK __attribute__((weak))
+extern void SEN_SetMirrorFlip(uint8_t ubMirror, uint8_t ubFlip) UI_WEAK;
+extern void ISP_SetMirrorFlip(uint8_t ubMirror, uint8_t ubFlip) UI_WEAK;
+#undef UI_WEAK
+#endif
 
 /**
  * Key event mapping table
@@ -365,13 +392,17 @@ void UI_OnInitDialog(void)
 #endif
 	OSD_LogoJpeg(ulUI_LogoIndex);
 	OSD_IMG_INFO tOsdImgInfo;	  //Logo Image
-	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);
-  tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);
-	osDelay(3000);
-	OSD_EraserImg1(&tOsdImgInfo);
+	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);//
+  tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);//
+	osDelay(3000);//
+	OSD_EraserImg1(&tOsdImgInfo);//
 	GPIO->GPIO_O0 	= 0;
 	GPIO->GPIO_O13 	= 0;
 	BUZ_PlayPowerOnSound();
+	if (tUI_PuSetting.ubTextTransparency < 4) // 0 to 3
+  {
+    OSD_Weight(transparency_levels[tUI_PuSetting.ubTextTransparency]);
+  }
 }
 //------------------------------------------------------------------------------
 #if (APP_ADO_FUNC_ENABLE == 1)
@@ -421,6 +452,7 @@ void UI_PcConn_SdCardPlugout(void)
 //------------------------------------------------------------------------------
 void UI_StateReset(void)
 {
+	printf("\n\n[DEBUG] The actual size of UI_BUStatus_t is: %u bytes\n\n", sizeof(UI_BUStatus_t));
 	osMutexDef(UI_PUMutex);
 	UI_PUMutex 	= osMutexCreate(osMutex(UI_PUMutex));
 	osMutexDef(UI_OsdLdStsUpdMutex);
@@ -7826,6 +7858,55 @@ void UI_ResetDevSetting(UI_CamNum_t tCamNum)
          sizeof(tUI_CamStatus[tCamNum].sleep_hist_ms));
 }
 //------------------------------------------------------------------------------
+void UI_ApplyFlipImageSetting(void)
+{
+	uint8_t ubMirror = 0;
+	uint8_t ubFlip = 0;
+	KNL_DISP_ROTATE tRotate = KNL_DISP_ROTATE_0;
+
+	if(tUI_PuSetting.ubFlipImage >= 4)
+		tUI_PuSetting.ubFlipImage = 0;
+
+	switch(tUI_PuSetting.ubFlipImage)
+	{
+		case 0:
+			tRotate = KNL_DISP_ROTATE_0;
+			ubMirror = 0;
+			ubFlip = 0;
+			break;
+		case 1:
+			tRotate = KNL_DISP_ROTATE_90;
+			ubMirror = 0;
+			ubFlip = 0;
+			break;
+		case 2:
+			tRotate = KNL_DISP_ROTATE_0;
+			ubMirror = 1;
+			ubFlip = 1;
+			break;
+		case 3:
+			tRotate = KNL_DISP_ROTATE_90;
+			ubMirror = 1;
+			ubFlip = 1;
+			break;
+		default:
+			tRotate = KNL_DISP_ROTATE_0;
+			ubMirror = 0;
+			ubFlip = 0;
+			tUI_PuSetting.ubFlipImage = 0;
+			break;
+	}
+
+	KNL_SetDispRotate(tRotate);
+	KNL_VdoDisplayParamUpdate();
+
+	if (SEN_SetMirrorFlip)
+		SEN_SetMirrorFlip(ubMirror, ubFlip);
+
+	if (ISP_SetMirrorFlip)
+		ISP_SetMirrorFlip(ubMirror, ubFlip);
+}
+//------------------------------------------------------------------------------
 void UI_LoadDevStatusInfo(void)
 {
 	uint32_t ulUI_SFAddr = pSF_Info->ulSize - (UI_SF_START_SECTOR * pSF_Info->ulSecSize);
@@ -7835,12 +7916,6 @@ void UI_LoadDevStatusInfo(void)
 	SF_Read(ulUI_SFAddr, sizeof(UI_DeviceStatusInfo_t), (uint8_t *)&tUI_DevStsInfo);
 	memcpy(tUI_CamStatus, tUI_DevStsInfo.tBU_StatusInfo, (CAM_4T * sizeof(UI_BUStatus_t)));
 	memcpy(&tUI_PuSetting, &tUI_DevStsInfo.tPU_SettingInfo, sizeof(UI_PUSetting_t));
-  // ----------------------------------------------------
-	for (tCamNum = CAM1; tCamNum < CAM_4T; tCamNum++)
-  {
-     tUI_CamStatus[tCamNum].name[sizeof(tUI_CamStatus[tCamNum].name) - 1] = '\0';
-  }
-  // ----------------------------------------------------
 	printd(DBG_InfoLvl, "UI TAG:%s\n",tUI_DevStsInfo.cbUI_DevStsTag);
 	printd(DBG_InfoLvl, "UI VER:%s\n",tUI_DevStsInfo.cbUI_FwVersion);
 	if((strncmp(tUI_DevStsInfo.cbUI_DevStsTag, SF_AP_UI_SECTOR_TAG, sizeof(tUI_DevStsInfo.cbUI_DevStsTag) - 1)) ||
@@ -7864,13 +7939,20 @@ void UI_LoadDevStatusInfo(void)
 		tUI_PuSetting.ubVibration = 1;      //  LOW
 		tUI_PuSetting.ubZoomLevel = 0;      //  OFF
 		tUI_PuSetting.ubLanguage = 0;       //  ENGLISH
+		tUI_PuSetting.ubLcdBrightness = 1;  // BRIGHTNESS
+    tUI_PuSetting.ubFlipImage = 0;      // NOT FILP 0
+		tUI_PuSetting.ubTextTransparency = 0;// NOT TRANSPARENCY
 		tUI_PuSetting.ubTempAlarmOn = 0; 		//	CLOSE
 		tUI_PuSetting.ubTempMax = 30;    		//  High Temp
 		tUI_PuSetting.ubTempMin = 10;    		//  Low Temp
 		tUI_PuSetting.ubKeyLockAutoActivate = 0; //NEVER
-		for(tCamNum = CAM1; tCamNum < CAM_4T; tCamNum++)
-    {
+    for (tCamNum = CAM1; tCamNum < CAM_4T; tCamNum++)
+		{
+        UI_ResetDevSetting(tCamNum);
+        sprintf(tUI_CamStatus[tCamNum].name, "BABY UNIT %d", tCamNum + 1);
         tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
+        tUI_CamStatus[tCamNum].sleep_time_ms = 0;
+        tUI_CamStatus[tCamNum].priority = tCamNum;
     }
 	}
 	tUI_PuSetting.ubTotalBuNum 				 = DISPLAY_MODE;
@@ -7891,7 +7973,12 @@ void UI_LoadDevStatusInfo(void)
 	UI_CHK_PUSYS(tUI_PuSetting.tVdoMode, UI_VDOMODE_MAX, UI_PHOTOCAP_MODE);
 	if(UI_PHOTOCAP_MODE == tUI_PuSetting.tVdoMode)
 		tUI_PuSetting.RecInfo.tREC_Mode = REC_OFF;
-
+	//
+	if((tUI_PuSetting.ubLcdBrightness < 1) || (tUI_PuSetting.ubLcdBrightness > 3))
+		tUI_PuSetting.ubLcdBrightness = 1;
+	UI_CHK_PUSYS(tUI_PuSetting.ubFlipImage, 4, 0);
+	UI_ApplyFlipImageSetting();
+	//
 	if(PS_WOR_MODE == tUI_PuSetting.tPsMode)
 	{
 		ulUI_LogoIndex = OSDLOGO_WORBOOT;
@@ -7919,6 +8006,7 @@ void UI_LoadDevStatusInfo(void)
 	{
 		if ((strncmp(tUI_DevStsInfo.cbUI_DevStsTag, SF_AP_UI_SECTOR_TAG, sizeof(tUI_DevStsInfo.cbUI_DevStsTag) - 1) == 0)
 		&& (strncmp(tUI_DevStsInfo.cbUI_FwVersion, SN937XX_FW_VERSION, sizeof(tUI_DevStsInfo.cbUI_FwVersion) - 1) == 0)) {
+
 			ulUI_MonitorPsFlag[tCamNum]   = FALSE;
 			tUI_CamStatus[tCamNum].tCamConnSts = CAM_ONLINE;
 			if(tCamNum >= tUI_PuSetting.ubTotalBuNum)
@@ -7945,10 +8033,11 @@ void UI_LoadDevStatusInfo(void)
 		} else {
 				tUI_CamStatus[tCamNum].ulCAM_ID = INVALID_ID;
 			UI_ResetDevSetting(tCamNum);
+			/*
 			sprintf(tUI_CamStatus[tCamNum].name, "BABY UNIT %d", tCamNum + 1); //zhu
 			tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
 			tUI_CamStatus[tCamNum].sleep_time_ms = 0;
-			tUI_CamStatus[tCamNum].priority = tCamNum;
+			tUI_CamStatus[tCamNum].priority = tCamNum;*/
 		}
 	}
   for (tCamNum = CAM1; tCamNum < DISPLAY_MODE; tCamNum++)
