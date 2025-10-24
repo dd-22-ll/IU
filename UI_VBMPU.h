@@ -670,11 +670,11 @@ typedef struct
 	char                name[20];
   uint32_t            sleep_time_ms;
   uint8_t             priority;
+	uint8_t							active; 
 	uint8_t             sleep_hist_count;		
   uint8_t             sleep_hist_head;
   uint32_t            sleep_hist_ms[UI_SLEEP_HISTORY_DEPTH];		//4*8
-	
-	uint8_t				  ubReserved[175];		//original 216
+	uint8_t				  ubReserved[155];		//original 216
 }UI_BUStatus_t;
 
 typedef struct
@@ -719,9 +719,12 @@ typedef struct
 		uint8_t				ubWarnUpdateCnt;
 	}WarnIcon;
 	
-	uint8_t					ubReserved[214];		//reduce appropriately after change, original: 256, unchanged:  221
+	uint8_t					ubReserved[211];		//reduce appropriately after change, original: 256, unchanged:  221
 	uint8_t					ubVibration;		//zhu
 	uint8_t					ubZoomLevel;
+	uint8_t         ubLcdBrightness;
+  uint8_t         ubFlipImage;
+	uint8_t         ubTextTransparency;
 	uint8_t					ubLanguage;
 	uint8_t         ubTempAlarmOn;
   uint8_t         ubTempMax;
@@ -850,6 +853,7 @@ typedef struct
 }UI_SettingFuncPtr_t;
 
 extern UI_PUSetting_t tUI_PuSetting;
+void UI_ApplyFlipImageSetting(void);  //zhu
 void UI_PowerKey(void);
 void UI_MenuKey(void);
 void UI_UpArrowKey(void);
