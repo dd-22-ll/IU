@@ -7851,7 +7851,7 @@ void UI_ResetDevSetting(UI_CamNum_t tCamNum)
 	//zhu
 	tUI_CamStatus[tCamNum].sleep_time_ms = 0;
   tUI_CamStatus[tCamNum].priority      = tCamNum;
-
+	tUI_CamStatus[tCamNum].active      = 0;
   tUI_CamStatus[tCamNum].sleep_hist_count = 0;
   tUI_CamStatus[tCamNum].sleep_hist_head  = UI_SLEEP_HISTORY_DEPTH - 1;
   memset(tUI_CamStatus[tCamNum].sleep_hist_ms, 0,
@@ -7953,6 +7953,7 @@ void UI_LoadDevStatusInfo(void)
         tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
         tUI_CamStatus[tCamNum].sleep_time_ms = 0;
         tUI_CamStatus[tCamNum].priority = tCamNum;
+				tUI_CamStatus[tCamNum].active = 0;
     }
 	}
 	tUI_PuSetting.ubTotalBuNum 				 = DISPLAY_MODE;
