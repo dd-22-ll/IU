@@ -35,6 +35,14 @@
 #include "CIPHER_API.h"
 #include "LCD.h"
 #include "WDT.h"
+#include "I2C.h"
+#include "UI.h"
+#include "cmsis_os.h" // FreeRTOS
+
+#ifdef VBM_PU
+#include "UI_VBMPU.h"
+#endif
+
 #ifdef CFG_UART1_ENABLE
 #include "UI_UART1.h"
 #endif
@@ -80,7 +88,7 @@ static void APP_WatchDogThread(void const *argument);
 unsigned char invalid_param;
 void APP_Init(void)
 {
-    osStatusN APP_OsStatus;
+    osStatus APP_OsStatus;
 
 	APP_OsStatus = osKernelInitialize((uint8_t*)ulMMU_GetCacheHeapStartAddr(), 
 												osHeapSize, 
@@ -139,6 +147,19 @@ void APP_Init(void)
 		printd(DBG_ErrorLvl, "Create APP_WatchDogThread fail!\n");
 		while(1);
 	}
+	//
+	osThreadDef(APP_I2CSlaveTask2, APP_I2CSlaveTask2, THREAD_PRIO_I2C_SLAVE2_HANDLER, 1, THREAD_STACK_I2C_SLAVE2_HANDLER);
+  if(osThreadCreate(osThread(APP_I2CSlaveTask2), NULL) == NULL)
+  {
+      printd(DBG_ErrorLvl, "Create APP_I2CSlaveTask2 fail!\n");
+  }
+	/*
+	osThreadDef(APP_I2CMasterTask2, APP_I2CMasterTask2, THREAD_PRIO_I2C_MASTER2_HANDLER, 1, THREAD_STACK_I2C_MASTER2_HANDLER);
+  if(osThreadCreate(osThread(APP_I2CMasterTask2), NULL) == NULL)
+  {
+      printd(DBG_ErrorLvl, "Create APP_I2CMasterTask2 fail!\n");
+  }
+	*/
 	/*! Start the kernel.  From here on, only tasks and interrupts will run. */
 	osKernelStart();
 
@@ -170,6 +191,126 @@ void APP_WatchDogThread(void const *argument)
 		osDelay(500);
 	}
 }
+//------------------------------------------------------------------------------
+//
+void APP_I2CSlaveTask2(void const *argument)
+{
+    I2C1_Type *pI2C2_Handle; 
+    uint8_t ubRxBuffer[64];  
+
+    printf("[I2C2 Slave Task] Started.\n");
+
+    pI2C2_Handle = pI2C_SlaveInit(I2C_2, I2C_SLAVE, I2C_SADDR8, 0x68);
+	
+    if (pI2C2_Handle == NULL)
+    {
+        printf("[I2C2 Slave Task] Error: Initialization failed!\n");
+        return; 
+    }
+    printf("[I2C2 Slave Task] Initialized. Slave Addr = 0x%02X. Waiting for messages...\n", 0x68);
+		
+		//GPIO->GPIO_OE13 = 0;
+    //GPIO->GPIO_OE14 = 0;
+		printf("[I2C2 Master Task] Current pin function (GLB->PADIO13): %d\n", GLB->PADIO13);
+    printf("[I2C2 Master Task] Current pin function (GLB->PADIO14): %d\n", GLB->PADIO14);
+		
+		//I2C_SlaveSetSpeed (pI2C2_Handle, I2C_SCL_100K);
+
+    while(1)
+    {
+				
+				if(bI2C_SlaveAddrMatch(pI2C2_Handle) == true)
+				{
+						printf("11111success\n");
+						//clear flag
+						osDelay(100);
+				}
+				else
+				{
+						printf("11111111fail\n");
+						osDelay(100);
+				}
+				
+			
+			/*
+        memset(ubRxBuffer, 0, sizeof(ubRxBuffer));
+
+        if (bI2C_SlaveIntRead(pI2C2_Handle, I2C_START_INT, ubRxBuffer, sizeof(ubRxBuffer)))
+        {
+						printf("[I2C2 Slave Task] Received data (Buffer content):");
+            for (uint32_t i = 0; i < sizeof(ubRxBuffer); ++i)
+            {
+                printf(" %02X", ubRxBuffer[i]);
+            }
+            printf("\n");
+        }
+				else
+				{
+					printf("1111111");
+					osDelay(100);
+				}
+				*/
+				
+        osDelay(10);
+    }
+}
+//
+//------------------------------------------------------------------------------
+/*
+void APP_I2CMasterTask2(void const *argument)
+{
+    I2C1_Type *pI2C2_Handle;
+    uint8_t ubTxBuffer[2] = {0x50, 0x55}; 
+    uint8_t target_slave_address = 0x68 >> 1; 
+
+    printf("[I2C2 Master Task] Started.\n");
+
+    pI2C2_Handle = pI2C_MasterInit(I2C_2, I2C_SCL_100K);
+
+    if (pI2C2_Handle == NULL)
+    {
+        printf("[I2C2 Master Task] Error: Master Initialization failed!\n");
+        osThreadTerminate(NULL);
+        return;
+    }
+    printf("[I2C2 Master Task] Initialized as Master.\n");
+		
+		printf("[I2C2 Master Task] Forcing GPIO output mode on pins 13 & 14...\n");
+    GPIO->GPIO_OE13 = 1;
+    GPIO->GPIO_OE14 = 1;
+    
+    printf("[I2C2 Master Task] Current pin function (GLB->PADIO13): %d\n", GLB->PADIO13);
+    printf("[I2C2 Master Task] Current pin function (GLB->PADIO14): %d\n", GLB->PADIO14);
+
+    while(1)
+    {
+        osDelay(1000); 
+				
+        //printf("[I2C2 Master Task] Writing data: 0x%02X 0x%02X to Slave  0x%02X\n",
+               //ubTxBuffer[0], ubTxBuffer[1], target_slave_address);bI2C_MasterProcess(pI2C2_Handle, target_slave_address, ubTxBuffer, sizeof(ubTxBuffer), NULL, 0)
+				
+        if (bI2C_MasterInt (pI2C2_Handle, I2C_INT, target_slave_address, ubTxBuffer, sizeof(ubTxBuffer), NULL, 0))
+        {
+            printf("[I2C2 Master Task] Write successful.\n");
+        }
+        else
+        {
+            printf("[I2C2 Master Task] Error: Write failed (No ACK?).\n");
+        }
+				
+				//printf(" 8~15: %d,%d,%d,%d,%d,%d,%d,%d\n", GLB->PADIO8,  GLB->PADIO9,  GLB->PADIO10, GLB->PADIO11, GLB->PADIO12, GLB->PADIO13, GLB->PADIO14, GLB->PADIO15);
+				
+				printf("[I2C2 Master Task] Toggling GPIO_O_SET/CLR for 13 & 14...\n");
+        
+        
+        //GPIO->GPIO_O_CLR = (1 << 13) | (1 << 14); 
+        //osDelay(4);
+        
+        //GPIO->GPIO_O_SET = (1 << 13) | (1 << 14); 
+        //osDelay(4);
+		}
+}
+*/
 //------------------------------------------------------------------------------
 void APP_PowerOnFunc(void)
 {
