@@ -942,7 +942,7 @@ void UI_PairModeGuide(void)
 
     UI_Drawbox();
 }
-
+/*
 void UI_ShowPairWizard(uint8_t cnt)
 {
     MenuBackground();
@@ -1003,7 +1003,7 @@ void UI_ShowPairWizard(uint8_t cnt)
 		OSD_IMG_INFO tFakeInfo = {0};
     tOSD_Img2(&tFakeInfo, OSD_UPDATE);
 }
-
+*/
 void UI_ShowPairRun(void)
 {
     MenuBackground();
@@ -1013,11 +1013,11 @@ void UI_ShowPairRun(void)
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    UI_DrawString("STATUS:", 40, 88);
+    UI_DrawString23("STATUS:", 40, 101);
     for (uint8_t i = 0; i < g_pair_needed; ++i) {
-        uint16_t y = 110 + i * 20;
+        uint16_t y = 122 + i * 22;
         if (g_pair_needed == 1) {
-            UI_DrawString23("BABY UNIT :", 40, y);
+            UI_DrawString23("BABY UNIT :", 40, y + 2);
         } else {
             char l[24];
             sprintf(l, "BABY UNIT %u :", (unsigned)(i + 1));
@@ -1031,29 +1031,35 @@ void UI_ShowPairRun(void)
     }
 
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
-    ln.uwYStart = 110 + (g_pair_needed ? g_pair_needed : 1) * 20 + 10;
+    ln.uwYStart = 110 + (g_pair_needed ? g_pair_needed : 1) * 20 + 18;
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    uint16_t y0 = ln.uwYStart + 15;
+		uint16_t y0 = ln.uwYStart + 18;
+    const uint16_t line_height = 25;
+
     for (uint8_t i = 0; i < g_pair_needed; ++i) {
-        uint16_t y = y0 + i * 40;
-        char tip[96];
+        char tip1[64];
+        char tip2[64] = {0};
+
         if (g_pair_needed == 1) {
-            sprintf(tip, "1  PRESS THE PAIR BUTTON ON THE BABY UNIT.");
+            sprintf(tip1, "1  PRESS THE PAIR BUTTON ON THE BABY UNIT.");
         } else if (i == 0) {
-            sprintf(tip, "1  PRESS THE PAIR BUTTON ON THE BABY UNIT YOU WANT TO GIVE THE HIGHEST PRIORITY.");
+            sprintf(tip1, "1  PRESS THE PAIR BUTTON ON THE BABY UNIT");
+            sprintf(tip2, "   YOU WANT TO GIVE THE HIGHEST PRIORITY.");
         } else {
-            sprintf(tip, "%u  PRESS THE PAIR BUTTON ON THE BABY UNIT YOU WANT TO GIVE PRIORITY %u.",
-                    (unsigned)(i + 1), (unsigned)(i + 1));
+            sprintf(tip1, "%u  PRESS THE PAIR BUTTON ON THE BABY UNIT", (unsigned)(i + 1));
+            sprintf(tip2, "   YOU WANT TO GIVE PRIORITY %u.", (unsigned)(i + 1));
         }
 
-        if (g_pair_done == i) {
-            UI_DrawString(tip, 40, y);
-        } else if (g_pair_done > i) {
-            UI_DrawString(tip, 40, y);
-        } else {
-            UI_DrawString23(tip, 40, y);
+        void (*DrawFunc)(const char *, uint16_t, uint16_t) = (g_pair_done == i) ? UI_DrawString23 : UI_DrawString23;
+
+        DrawFunc(tip1, 40, y0);
+        
+        if (tip2[0] != '\0') {
+            y0 += line_height;
+            DrawFunc(tip2, 40, y0);
         }
+        y0 += 40;
     }
 		
 		OSD_IMG_INFO tFakeInfo = {0};
@@ -1069,24 +1075,24 @@ void UI_ShowPairSuccess(void)
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    UI_DrawString("STATUS:", 40, 88);
+    UI_DrawString23("STATUS:", 40, 98);
     if (g_pair_needed == 1) {
-        UI_DrawString23("BABY UNIT : PAIRING SUCCESSFUL", 40, 110);
+        UI_DrawString23("BABY UNIT : PAIRING SUCCESSFUL", 40, 124);
     } else {
         for (uint8_t i = 0; i < g_pair_done; ++i) {
             char l[40];
             sprintf(l, "BABY UNIT %u : PAIRING SUCCESSFUL", (unsigned)(i + 1));
-            UI_DrawString23(l, 40, 110 + i * 20);
+            UI_DrawString23(l, 40, 120 + i * 20);
         }
     }
 
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
-    ln.uwYStart = 110 + (g_pair_needed == 1 ? 1 : g_pair_done) * 20 + 10;
+    ln.uwYStart = 110 + (g_pair_needed == 1 ? 1 : g_pair_done) * 20 + 18;
     tOSD_Img2(&ln, OSD_QUEUE);
 
     UI_DrawString23("PAIRING SUCCESSFUL", 200, ln.uwYStart + 20);
     UI_DrawString("RESTART THIS UNIT", 130, ln.uwYStart + 55);
-    UI_DrawString23("TO END PAIR MODE", 165, ln.uwYStart + 80);
+    UI_DrawString("TO END PAIR MODE", 165, ln.uwYStart + 80);
     UI_DrawString23("(TURN THIS UNIT OFF AND ON AGAIN)", 85, ln.uwYStart + 110);
 		
 		OSD_IMG_INFO tFakeInfo = {0};
@@ -1850,13 +1856,6 @@ void UI_ShowBabyUnitSettings(void)
 {
     MenuBackground();
     UI_DrawString("BABY UNIT SETTINGS", 160, 52);
-    printf("ulAp_ID: %d, ulSTA_ID[0]: %d, %d, %d, %d, %d\n", PAIR_IdTable.ulAp_ID, PAIR_IdTable.ulSTA_ID[0], PAIR_IdTable.ulSTA_ID[1], PAIR_IdTable.ulSTA_ID[2], PAIR_IdTable.ulSTA_ID[3]);
-    printf("%d\n", PAIR_GetStaNumber());
-    printf("zubpairedBuNum: %d, zubTotalBuNum: %d\n", tUI_PuSetting.ubPairedBuNum, tUI_PuSetting.ubTotalBuNum);
-    printf("%d\n", tUI_CamStatus[0].ulCAM_ID);
-    // printf("%s\n", tUI_CamStatus[0].tCamConnSts);
-    PAIR_ShowDeviceID();
-    printf("%X,%X,%X,%X", *((uint32_t *)PAIR_GetId(0)), *((uint32_t *)PAIR_GetId(1)), *((uint32_t *)PAIR_GetId(2)), *((uint32_t *)PAIR_GetId(3)));
 
     OSD_IMG_INFO tOsdImgInfoLine;
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine);
@@ -2278,7 +2277,7 @@ void UI_ShowSetLimitHigh(void)
     osDelay(1);
 
     const int BATCH_SIZE = 4; // Process 4 items at a time
-    int processed        = 0;
+    //int processed        = 0;
 
     for (int batch = 0; batch < (TEMP_HIGH_MENU_ITEM_COUNT - 1 + BATCH_SIZE - 1) / BATCH_SIZE; batch++) {
         int start = batch * BATCH_SIZE;
@@ -2289,8 +2288,7 @@ void UI_ShowSetLimitHigh(void)
 
         for (int i = start; i < end; i++) {
             sprintf(temp_str, "%d"
-                              "\xB0"
-                              "C",
+                              "\xB0",
                     TEMP_HIGH_VALUES[i]);
             UI_DrawString(temp_str, TEMP_HIGH_MENU_POS[i].x + 55, TEMP_HIGH_MENU_POS[i].y + 8);
         }
@@ -2342,8 +2340,7 @@ void UI_ShowSetLimitLow(void)
 
         for (int i = start; i < end; i++) {
             sprintf(temp_str, "%d"
-                              "\xB0"
-                              "C",
+                              "\xB0",
                     TEMP_LOW_VALUES[i]);
             UI_DrawString(temp_str, TEMP_LOW_MENU_POS[i].x + 55, TEMP_LOW_MENU_POS[i].y + 8);
         }
@@ -3516,10 +3513,12 @@ void MoveboxUp(void)
             break;
 
         case MENU_SLEEP_HISTORY_SELECT:
+				{
             uint8_t max          = UI_GetSleepHistorySelectItemCount();
             g_current_menu_index = (g_current_menu_index + max - 1) % max;
             g_rectangle_y        = SLEEPHIS_BUSEL_Y_POS[g_current_menu_index];
             break;
+				}
 
         case MENU_SLEEP_HISTORY:
             g_current_menu_index = (g_current_menu_index + SLEEPHIS_MAIN_ITEM_COUNT - 1) % SLEEPHIS_MAIN_ITEM_COUNT;
@@ -3798,6 +3797,7 @@ void EnterKeyHandler(void)
                     break;
 
                 case 3: // SLEEP TIMER
+								{
                     g_current_menu_level    = MENU_LEVEL_SLEEP_TIMER;
                     g_current_menu_index    = 0;
                     uint8_t connected_count = 0;
@@ -3808,6 +3808,7 @@ void EnterKeyHandler(void)
                     g_rectangle_x = 40;
                     g_rectangle_y = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
                     break;
+								}
 
                 case 4: // DISPLAY SETTINGS
                     g_current_menu_level = MENU_DISPLAYSETTINGS;
@@ -4007,6 +4008,7 @@ void EnterKeyHandler(void)
             break;
 
         case MENU_SLEEP_HISTORY_SELECT:
+				{
             uint8_t bu_count = 0;
             for (uint8_t i = 0; i < CAM_4T; i++) {
                 if (ubTRX_GetLinkStatus(i)) {
@@ -4029,6 +4031,7 @@ void EnterKeyHandler(void)
                 g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[2];
             }
             break;
+				}
 
         case MENU_SLEEP_HISTORY:
             if (g_current_menu_index == 0) {
@@ -4463,6 +4466,7 @@ case MENU_SLEEP_HISTORY_DELETED:
 
                 // TODO: go into pair mode
                 // PAIR_EnterPairMode(g_pair_needed);
+							
                 g_current_menu_level = MENU_PAIR_RUN;
                 g_current_menu_index = 0;
                 g_rectangle_x        = 40;
@@ -4499,11 +4503,28 @@ case MENU_SLEEP_HISTORY_DELETED:
         case MENU_UNPAIR_BABY_UNIT:
             if (g_current_menu_index == 0) { // YES
                 if (g_unpair_target_ch != 0xFF)
-                    // todotodoUnpair(g_unpair_target_ch);
-                    g_current_menu_level = MENU_BABY_UNIT_WAS_UNPAIRED;
-                g_current_menu_index = 0;
-                g_rectangle_x        = 40;
-                g_rectangle_y        = 200;
+        {
+            printf("Requesting APP to unpair BU index: %d\n", g_unpair_target_ch);
+
+            APP_EventMsg_t unbind_msg;
+            memset(&unbind_msg, 0, sizeof(unbind_msg));
+
+            unbind_msg.ubAPP_Event = APP_UNBIND_CAM_EVENT;
+            unbind_msg.ubAPP_Message[1] = g_unpair_target_ch; 
+
+            UI_SendMessageToAPP((void*)&unbind_msg);
+
+            g_current_menu_level = MENU_BABY_UNIT_WAS_UNPAIRED;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = 200;
+        }
+        else {
+             printf("Error: Invalid unpair target channel!\n");
+             g_current_menu_level = MENU_UNPAIR_UNITS;
+             g_current_menu_index = g_unpair_pick_menu_idx;
+             UI_UpdateUnpairMenuPositions();
+        }
             } else {
                 g_current_menu_level = MENU_UNPAIR_UNITS;
                 g_current_menu_index = 0;
@@ -4512,7 +4533,6 @@ case MENU_SLEEP_HISTORY_DELETED:
             break;
 
         case MENU_BABY_UNIT_WAS_UNPAIRED:
-            // EXIT:Pair Units
             g_current_menu_level = 5; // PAIR UNITS
             g_current_menu_index = 0;
             UI_UpdatePairUnitsMenuPositions();
