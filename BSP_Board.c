@@ -153,7 +153,8 @@ void BSP_BoardInit(void)
 	//! LCD Reset
 	GLB->PADIO11 = 7;	
 	
-	
+	GLB->PADIO13 = 2;		//uart2
+	GLB->PADIO14 = 2;
 	
 	GLB->PADIO52 = 0;		//gpio10	//charge det
 	GLB->PADIO57 = 7;		//pwm9		//flash_en
@@ -513,7 +514,7 @@ void BSP_BoardInit(void)
 	GLB->PADIO5  = 0;
 
 	//! Reset Sensor
-	GLB->PADIO1  = 4;		//ÕâÀïÊÇÎªÁË±ÜÃâÓëgpio1³åÍ»
+	GLB->PADIO1  = 4;		//Ã•Ã¢Ã€Ã¯ÃŠÃ‡ÃŽÂªÃÃ‹Â±ÃœÃƒÃ¢Ã“Ã«gpio1Â³Ã¥ÃÂ»
 	GLB->PADIO15 = 0;		//gpio1
 
 	//! I2C-2
@@ -564,3 +565,4 @@ void BSP_BoardInit(void)
 //------------------------------------------------------------------------------
 
 #endif //! End #if defined VBM_PU || defined VBM_BU
+
