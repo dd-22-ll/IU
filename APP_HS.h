@@ -213,7 +213,8 @@ void APP_PowerSaveExec(APP_EventMsg_t *ptEventMsg);
 void APP_SetTuningToolMode(APP_TuningMode_t tTuningMode);
 APP_TuningMode_t APP_GetTuningToolMode(void);
 void APP_Start(void);
-
+void APP_I2CSlaveTask2(void const *argument);
+void APP_I2CMasterTask2(void const *argument);
 //! Extern
 extern osMutexId APP_UpdateMutex;
 #endif																			//!< End of _APP_HS_H_ definition
