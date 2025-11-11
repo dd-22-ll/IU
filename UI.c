@@ -126,6 +126,7 @@ static uint16_t g_rectangle_y       = 110; // box Y
 uint8_t g_is_menu_visible           = 0;   // 0 not visible    static
 static uint8_t g_current_menu_level = 0;   // 0 mainmenu, 1,2,3 submenu
 static uint8_t g_current_menu_index = 0;   // menu index
+bool g_is_key_locked = false;							 // keyboard lock
 // Menu(Level 0)
 const uint16_t MAIN_MENU_Y_POS[]   = {110, 150, 190, 230, 270, 310, 350};
 const uint8_t MAIN_MENU_ITEM_COUNT = sizeof(MAIN_MENU_Y_POS) / sizeof(uint16_t);
@@ -313,7 +314,18 @@ if (g_is_menu_visible) {
     */
     UI_RefreshScreen();
 }
+//------------------------------------------------------------------------------
+void UI_RequestPairingStart(uint8_t pair_target_cnt)
+{
+    if (pair_target_cnt == 0) {
+        pair_target_cnt = 1;
+    }
 
+    APP_EventMsg_t pair_msg = {0};
+    pair_msg.ubAPP_Event      = APP_PAIRING_START_EVENT;
+    pair_msg.ubAPP_Message[0] = pair_target_cnt;
+    UI_SendMessageToAPP(&pair_msg);
+}
 //------------------------------------------------------------------------------
 void UI_ShowMenu(void)
 {
@@ -394,22 +406,50 @@ void UI_ShowKeyLock(void)
 //------------------------------------------------------------------------------
 void UI_KeyLockActivate(void)
 {
+		g_is_key_locked = true;
+    g_is_menu_visible = 0;
+    UI_RefreshScreen();
 }
 //------------------------------------------------------------------------------
 void UI_ShowZoom(void)
 {
+		uint8_t connected_count = 0;
+    for (uint8_t i = 0; i < CAM_4T; i++) {
+        if (ubTRX_GetLinkStatus(i)) {
+            connected_count++;
+            break;
+        }
+    }
+
+    if (connected_count == 0) {
+        MenuBackground();
+
+        UI_DrawString("ZOOM", 280, 52);
+
+        OSD_IMG_INFO tOsdImgInfoLine1;
+        tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine1);
+        tOSD_Img2(&tOsdImgInfoLine1, OSD_QUEUE); 
+
+        UI_DrawString23("ACTIVATE VIDEO MODE TO USE ZOOM", 52, 100);
+
+        OSD_IMG_INFO tOsdImgInfoLine2;
+        tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &tOsdImgInfoLine2);
+        tOsdImgInfoLine2.uwXStart = 40;
+        tOsdImgInfoLine2.uwYStart = 125;
+        tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
+
+        UI_DrawString("EXIT", 52, 138);
+				g_rectangle_x       = 40;
+				g_rectangle_y       = 130;
+        UI_Drawbox();
+
+        return;
+    }
     OSD_IMG_INFO tOsdImgInfo;
     tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_MENU, 1, &tOsdImgInfo);
     tOsdImgInfo.uwHSize = 588;
     tOsdImgInfo.uwVSize = 185;
     tOSD_Img1(&tOsdImgInfo, OSD_QUEUE);
-
-    // OSD_IMG_INFO tInfor;
-    // tInfor.uwHSize = 588;	//width
-    // tInfor.uwVSize = 243;
-    // tInfor.uwXStart = 26;
-    // tInfor.uwYStart = 211;
-    // OSD_EraserImg1(&tInfor);
 
     UI_DrawString("ZOOM", 280, 52);
     UI_DrawString("DIGITAL ZOOM", 52, 118);
@@ -441,33 +481,26 @@ void UI_ToggleDigitalZoom(void)
     LCD_DYN_INFOR_TYP dyn_info;
     LCD_RESULT result;
 
-    // --- Start of Changes ---
-
-    // 1. Ask the Kernel which video source is currently displayed
     uint8_t src = ubKNL_GetDispSrc(KNL_DISP_LOCATION1);
 
-    // 2. Get the dimensions for THAT specific source
     uint16_t original_width  = uwKNL_GetVdoH(src);
     uint16_t original_height = uwKNL_GetVdoV(src);
-
-    // --- End of Changes ---
 
     uint16_t screen_width  = uwLCD_GetLcdHoSize();
     uint16_t screen_height = uwLCD_GetLcdVoSize();
 
-    // The rest of your function remains the same...
     dyn_info.tChRes.uwChInputHsize = original_width;
     dyn_info.tChRes.uwChInputVsize = original_height;
     dyn_info.uwLcdOutputHsize      = screen_width;
     dyn_info.uwLcdOutputVsize      = screen_height;
 
-    if (tUI_PuSetting.ubZoomLevel == 0) // Current is 1x, switching to 2x
+    if (tUI_PuSetting.ubZoomLevel == 0)
     {
         dyn_info.tChRes.uwCropHsize  = original_width / 2;
         dyn_info.tChRes.uwCropVsize  = original_height / 2;
         dyn_info.tChRes.uwCropHstart = (original_width - dyn_info.tChRes.uwCropHsize) / 2;
         dyn_info.tChRes.uwCropVstart = (original_height - dyn_info.tChRes.uwCropVsize) / 2;
-    } else // Current is 2x, switching to 1x
+    } else 
     {
         dyn_info.tChRes.uwCropHsize  = original_width;
         dyn_info.tChRes.uwCropVsize  = original_height;
@@ -480,7 +513,6 @@ void UI_ToggleDigitalZoom(void)
     if (result == LCD_OK) {
         tUI_PuSetting.ubZoomLevel = !tUI_PuSetting.ubZoomLevel;
         g_settings_changed        = 1;
-        // Also update the UI text after changing zoom
         UI_RefreshScreen();
     } else {
         printf("Dynamic scale failed with error code: %d\n", result);
@@ -1132,7 +1164,7 @@ void UI_UpdateUnpairMenuPositions(void)
 
     UNPAIR_MENU_ITEM_COUNT = (bu_count == 0) ? 1 : (bu_count + 1);
 
-    uint16_t base_y = 122;
+    uint16_t base_y = 150;
     for (uint8_t i = 0; i < UNPAIR_MENU_ITEM_COUNT; ++i) {
         UNPAIR_MENU_Y_POS[i] = base_y + i * 40;
     }
@@ -1155,7 +1187,7 @@ void UI_ShowUnpairUnits(void)
 
     uint16_t y = 100;
     UI_DrawString23("THIS UNIT IS PAIRED WITH:", 52, y);
-    y += 20;
+    y += 25;
 
     uint8_t bu_count = 0;
     for (uint8_t i = 0; i < 3; ++i) {
@@ -1164,14 +1196,14 @@ void UI_ShowUnpairUnits(void)
             char line[24];
             snprintf(line, sizeof(line), "BABY UNIT %u", i + 1);
             UI_DrawString23(line, 52, y);
-            y += 20;
+            y += 25;
         }
     }
 
     UI_UpdateUnpairMenuPositions();
 
     for (uint8_t k = 0; k < (UNPAIR_MENU_ITEM_COUNT - 1); ++k) {
-        char txt[40];
+        char txt[24];
         snprintf(txt, sizeof(txt), "UNPAIR BABY UNIT %u", g_bu_idx_map[k] + 1);
         UI_DrawString(txt, 52, UNPAIR_MENU_Y_POS[k] + 8);
     }
@@ -1192,12 +1224,12 @@ void UI_ShowUnpairBabyUnit(void)
     char q[80];
     snprintf(q, sizeof(q),
              "ARE YOU SURE YOU WANT TO UNPAIR");
-    UI_DrawString23(q, 52, 110);
+    UI_DrawString23(q, 52, 100);
     snprintf(q, sizeof(q),
              "BABY UNIT %u?", g_unpair_target_ch + 1);
-    UI_DrawString23(q, 52, 135);
+    UI_DrawString23(q, 52, 125);
 
-    uint16_t yes_y = 160, no_y = 200;
+    uint16_t yes_y = 150, no_y = 190;
     UI_DrawString("YES", 52, yes_y + 8);
     UI_DrawString("NO", 52, no_y + 8);
 
@@ -1219,18 +1251,18 @@ void UI_ShowBabyUnitWasUnpaired(void)
 
     uint16_t y = 100;
     UI_DrawString23("THIS UNIT IS PAIRED WITH:", 52, y);
-    y += 20;
+    y += 25;
 
     for (uint8_t i = 0; i < 3; ++i) {
         if (ubTRX_GetLinkStatus(i)) {
             char line[24];
             snprintf(line, sizeof(line), "BABY UNIT %u", i + 1);
             UI_DrawString23(line, 52, y);
-            y += 20;
+            y += 25;
         }
     }
 
-    uint16_t exit_y = 160 + 40;
+    uint16_t exit_y = 150;
     UI_DrawString("EXIT", 52, exit_y + 8);
 
     g_current_menu_index = 0;
@@ -1565,12 +1597,12 @@ void UI_SleepHistorySelect(void)
         if (ubTRX_GetLinkStatus(i)) {
             char buf[32];
             snprintf(buf, sizeof(buf), "BABY UNIT %d", i + 1);
-            UI_DrawString(buf, 52, SLEEPHIS_BUSEL_Y_POS[bu_count]);
+            UI_DrawString(buf, 52, SLEEPHIS_BUSEL_Y_POS[bu_count] + 8);
             bu_count++;
         }
     }
 
-    UI_DrawString("EXIT", 52, SLEEPHIS_BUSEL_Y_POS[bu_count] + 3);
+    UI_DrawString("EXIT", 52, SLEEPHIS_BUSEL_Y_POS[bu_count] + 8);
 
     if (g_current_menu_index > bu_count)
         g_current_menu_index = bu_count;
@@ -1672,7 +1704,7 @@ void UI_SleepHistoryOptions(void)
     UI_Drawbox();
 }
 
-static void UI_SleepHistoryDeleted(void)
+void UI_SleepHistoryDeleted(void)
 {
     MenuBackground();
     UI_DrawString("SLEEP HISTORY", 205, 52);
@@ -1681,9 +1713,14 @@ static void UI_SleepHistoryDeleted(void)
     tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
     tOSD_Img2(&ln, OSD_QUEUE);
 
-    UI_DrawString("SLEEP HISTORY HAS BEEN DELETED", 52, 118);
+    UI_DrawString23("SLEEP HISTORY HAS BEEN DELETED", 52, 110);
 
-    uint16_t exit_y = 150;
+	  OSD_IMG_INFO ln1;
+    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln1);
+    ln1.uwYStart = 140;
+    tOSD_Img2(&ln1, OSD_QUEUE);
+	
+    uint16_t exit_y = 156;
     UI_DrawString("EXIT", 52, exit_y + 8);
 
     g_current_menu_index = 0;
@@ -2026,7 +2063,7 @@ void UI_ShowChangeName(void)
     tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
 
     uint16_t x = 52;
-    uint16_t y = 175;
+    uint16_t y = 171;
     for (int col = 0; col < KEYBOARD_ROW_0_COLS; col++) {
         UI_DrawString23(ENGLISH_KEYBOARD[0][col], x, y);
         x += 40;
@@ -4078,12 +4115,12 @@ void EnterKeyHandler(void)
             }
             break;
 						
-case MENU_SLEEP_HISTORY_DELETED:    
-    g_current_menu_level = MENU_SLEEP_HISTORY; 
-    g_current_menu_index = 1;                 
-    g_rectangle_x        = 40;
-    g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
-    break;
+				case MENU_SLEEP_HISTORY_DELETED:
+						g_current_menu_level = MENU_SLEEP_HISTORY; 
+						g_current_menu_index = 1;                 
+						g_rectangle_x        = 40;
+						g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+						break;
 
         case MENU_DISPLAYSETTINGS:
             switch (g_current_menu_index) {
@@ -4466,7 +4503,7 @@ case MENU_SLEEP_HISTORY_DELETED:
 
                 // TODO: go into pair mode
                 // PAIR_EnterPairMode(g_pair_needed);
-							
+								UI_RequestPairingStart(g_pair_needed);
                 g_current_menu_level = MENU_PAIR_RUN;
                 g_current_menu_index = 0;
                 g_rectangle_x        = 40;
@@ -4621,207 +4658,268 @@ void MenuExitHandler(void)
         g_settings_changed = 0;
     }
 
-    if (g_current_menu_level == MENU_LEVEL_SLEEP_TIMER) {
-        g_current_menu_level = 4; // Settings menu level
-        g_current_menu_index = 3; // cursor positioning "SLEEP TIMER"
-        g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_SLEEP_HISTORY_VIEW) {
-        g_current_menu_level = MENU_SLEEP_HISTORY;
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_SLEEP_HISTORY_OPTIONS) {
-        g_current_menu_level = MENU_SLEEP_HISTORY;
-        g_current_menu_index = 1;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_SLEEP_HISTORY) {
-        g_current_menu_level = MENU_SLEEP_HISTORY_SELECT;
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_SLEEP_HISTORY_SELECT) {
-        g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
-        g_current_menu_index = 2;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
-		} else if (g_current_menu_level == MENU_SLEEP_HISTORY_DELETED) {
-        g_current_menu_level = MENU_SLEEP_HISTORY_SELECT; 
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_DISPLAYSETTINGS) {
-        g_current_menu_level = 4; // Back SETTINGS
-        g_current_menu_index = 4; // positioning "DISPLAY SETTINGS"
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_BABYUNITSETTINGS) {
-        g_current_menu_level = 4; // back SETTINGS
-        g_current_menu_index = 5; // position "BABY UNIT SETTINGS"
-        g_rectangle_x        = 40;
-        g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_LEVEL_TEMP_ALARM) {
-        g_current_menu_level = 4; // back SETTINGS
-        g_current_menu_index = 6; // position "MENU_LEVEL_TEMP_ALARM"
-        g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_LEVEL_SET_TEMP_HIGH) {
-        g_current_menu_level = MENU_LEVEL_TEMP_ALARM;
-        g_current_menu_index = 1;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = 150;
-    } else if (g_current_menu_level == MENU_LEVEL_SET_TEMP_LOW) {
-        g_current_menu_level = MENU_LEVEL_TEMP_ALARM;
-        g_current_menu_index = 2;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = 190;
-    } else if (g_current_menu_level == MENU_ADVANCEDDISPLAYSETTINGS) {
-        g_current_menu_level = MENU_DISPLAYSETTINGS;
-        g_current_menu_index = 3; // positioning "ADVANCED"
-        g_rectangle_x        = 40;
-        g_rectangle_y        = DISPLAYSETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_BABYUNITDETAIL) {
-        g_current_menu_level = MENU_BABYUNITSETTINGS;
-        g_current_menu_index = g_selected_bu_index;
-        g_rectangle_y        = BABYUNITSETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_CHANGE_NAME) {
-        g_current_menu_level = MENU_BABYUNITDETAIL;
-        g_current_menu_index = 1;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = 220;
-    } else if (g_current_menu_level == MENU_CHANGE_PRIORITY_MAIN) {
-        g_current_menu_level = MENU_BABYUNITSETTINGS;
-        uint8_t count        = 0;
-        for (uint8_t i = 0; i < CAM_4T; i++) {
-            if (ubTRX_GetLinkStatus(i))
-                count++;
-        }
-        if (count == 0) {
+    switch (g_current_menu_level) {
+        case MENU_LEVEL_SLEEP_TIMER:
+            g_current_menu_level = 4; // Settings menu level
+            g_current_menu_index = 3; // cursor positioning "SLEEP TIMER"
+            g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_SLEEP_HISTORY_VIEW:
+            g_current_menu_level = MENU_SLEEP_HISTORY;
             g_current_menu_index = 0;
-        } else {
-            g_current_menu_index = 1;
-        }
-
-        g_rectangle_y = BABYUNITSETTINGS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_BABY_UNIT_INFO) {
-        g_current_menu_level = MENU_BABYUNITDETAIL;
-        g_current_menu_index = 2;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = 260;
-    } else if (g_current_menu_level == MENU_PAIR_NEW_BABY_UNIT) {
-        g_current_menu_level = 5; // Back to PAIR UNITS
-        g_current_menu_index = 0; // Position on "CONNECT NEW BABY UNIT"
-        g_rectangle_x        = 40;
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_PAIR_MODE) {
-        g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT; // Back to MENU_PAIR_NEW_BABY_UNIT
-        g_current_menu_index = 0;                       // Position on "CONNECT NEW BABY UNIT"
-        g_rectangle_x        = 40;
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_PAIR_MODE_GUIDE) {
-        g_current_menu_level = MENU_PAIR_MODE;
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        g_rectangle_y        = PAIRMODE_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_PAIR_RUN) {
-        g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_PAIR_SUCCESS) {
-        g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
-        g_current_menu_index = 0;
-        g_rectangle_x        = 40;
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_UNPAIR_UNITS) {
-        g_current_menu_level = 5;
-        g_current_menu_index = 0;
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_UNPAIR_BABY_UNIT) {
-        g_current_menu_level = MENU_UNPAIR_UNITS;
-        g_current_menu_index = 0;
-        UI_UpdateUnpairMenuPositions();
-    } else if (g_current_menu_level == MENU_BABY_UNIT_WAS_UNPAIRED) {
-        g_current_menu_level = 5;
-        g_current_menu_index = 1; // UNPAIR BABY UNIT
-        UI_UpdatePairUnitsMenuPositions();
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    }
-
-    else if (g_current_menu_level == MENU_PAIRING_INFO) {
-        g_current_menu_level = 5; // Back to PAIR UNITS
-
-        uint8_t connected_count = 0;
-        for (uint8_t i = 0; i < 3; i++) {
-            if (ubTRX_GetLinkStatus(i)) {
-                connected_count++;
-            }
-        }
-        if (connected_count == 0) {
-            g_current_menu_index = 1;
-        } else if (connected_count == 1 || connected_count == 2) {
-            g_current_menu_index = 2;
-        } else if (connected_count == 3) {
-            g_current_menu_index = 1;
-        }
-        g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_ABOUT_PAIRING) {
-        g_current_menu_level = MENU_PAIRING_INFO;
-        g_current_menu_index = 0;
-        g_rectangle_y        = PAIRINGINFO_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_COMPATIBLE_UNITS) {
-        g_current_menu_level = MENU_PAIRING_INFO;
-        g_current_menu_index = 1;
-        g_rectangle_y        = PAIRINGINFO_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_PAIRING_WITH_N65) {
-        g_current_menu_level = MENU_COMPATIBLE_UNITS;
-        g_current_menu_index = 0;
-        g_rectangle_y        = COMPATIBLEUNITS_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_ABOUT_THIS_MODEL) {
-        g_current_menu_level = 6;
-        g_current_menu_index = 0;
-        g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_FEATURES) {
-        g_current_menu_level = 6;
-        g_current_menu_index = 1;
-        g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_CONTACT_INFORMATION) {
-        g_current_menu_level = 6;
-        g_current_menu_index = 2;
-        g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_RANGE_AND_TRANSMISSION) {
-        g_current_menu_level = MENU_FEATURES;
-        g_current_menu_index = 0;
-        g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_BATTERY) {
-        g_current_menu_level = MENU_FEATURES;
-        g_current_menu_index = 1;
-        g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level == MENU_SPECIAL_FEATURES) {
-        g_current_menu_level = MENU_FEATURES;
-        g_current_menu_index = 2;
-        g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
-    } else if (g_current_menu_level > 0) {
-        uint8_t previous_menu = g_current_menu_level;
-
-        g_current_menu_level = 0;
-
-        if (previous_menu >= 1 && previous_menu <= 6) {
-            g_current_menu_index = previous_menu - 1;
             g_rectangle_x        = 40;
-            g_rectangle_y        = MAIN_MENU_Y_POS[g_current_menu_index];
-        } else {
-            g_current_menu_index = 0;
-            g_rectangle_y        = MAIN_MENU_Y_POS[0];
-        }
-    } else {
-        g_is_menu_visible = 0;
-    }
+            g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+            break;
 
+        case MENU_SLEEP_HISTORY_OPTIONS:
+            g_current_menu_level = MENU_SLEEP_HISTORY;
+            g_current_menu_index = 1;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SLEEPHIS_MAIN_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_SLEEP_HISTORY:
+            g_current_menu_level = MENU_SLEEP_HISTORY_SELECT;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_SLEEP_HISTORY_SELECT:
+            g_current_menu_level = MENU_LEVEL_SLEEP_TIMER;
+            g_current_menu_index = 2;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_SLEEP_HISTORY_DELETED:
+            g_current_menu_level = MENU_SLEEP_HISTORY_SELECT;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SLEEPTIMER_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_DISPLAYSETTINGS:
+            g_current_menu_level = 4; // Back SETTINGS
+            g_current_menu_index = 4; // "DISPLAY SETTINGS"
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_BABYUNITSETTINGS:
+            g_current_menu_level = 4; // back SETTINGS
+            g_current_menu_index = 5; // "BABY UNIT SETTINGS"
+            g_rectangle_x        = 40;
+            g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_LEVEL_TEMP_ALARM:
+            g_current_menu_level = 4; // back SETTINGS
+            g_current_menu_index = 6; // "MENU_LEVEL_TEMP_ALARM"
+            g_rectangle_y        = SETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_LEVEL_SET_TEMP_HIGH:
+            g_current_menu_level = MENU_LEVEL_TEMP_ALARM;
+            g_current_menu_index = 1;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = 150;
+            break;
+
+        case MENU_LEVEL_SET_TEMP_LOW:
+            g_current_menu_level = MENU_LEVEL_TEMP_ALARM;
+            g_current_menu_index = 2;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = 190;
+            break;
+
+        case MENU_ADVANCEDDISPLAYSETTINGS:
+            g_current_menu_level = MENU_DISPLAYSETTINGS;
+            g_current_menu_index = 3; // "ADVANCED"
+            g_rectangle_x        = 40;
+            g_rectangle_y        = DISPLAYSETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_BABYUNITDETAIL:
+            g_current_menu_level = MENU_BABYUNITSETTINGS;
+            g_current_menu_index = g_selected_bu_index;
+            g_rectangle_y        = BABYUNITSETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_CHANGE_NAME:
+            g_current_menu_level = MENU_BABYUNITDETAIL;
+            g_current_menu_index = 1;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = 220;
+            break;
+
+        case MENU_CHANGE_PRIORITY_MAIN: {
+            g_current_menu_level = MENU_BABYUNITSETTINGS;
+            uint8_t count = 0;
+            for (uint8_t i = 0; i < CAM_4T; i++) {
+                if (ubTRX_GetLinkStatus(i)) count++;
+            }
+            g_current_menu_index = (count == 0) ? 0 : 1;
+            g_rectangle_y        = BABYUNITSETTINGS_MENU_Y_POS[g_current_menu_index];
+            break;
+        }
+
+        case MENU_BABY_UNIT_INFO:
+            g_current_menu_level = MENU_BABYUNITDETAIL;
+            g_current_menu_index = 2;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = 260;
+            break;
+
+        case MENU_PAIR_NEW_BABY_UNIT:
+            g_current_menu_level = 5; // Back to PAIR UNITS
+            g_current_menu_index = 0; // "CONNECT NEW BABY UNIT"
+            g_rectangle_x        = 40;
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIR_MODE:
+            g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
+            g_current_menu_index = 0; // "CONNECT NEW BABY UNIT"
+            g_rectangle_x        = 40;
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIR_MODE_GUIDE:
+            g_current_menu_level = MENU_PAIR_MODE;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            g_rectangle_y        = PAIRMODE_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIR_RUN:
+            g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIR_SUCCESS:
+            g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
+            g_current_menu_index = 0;
+            g_rectangle_x        = 40;
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_UNPAIR_UNITS:
+            g_current_menu_level = 5;
+            g_current_menu_index = 0;
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_UNPAIR_BABY_UNIT:
+            g_current_menu_level = MENU_UNPAIR_UNITS;
+            g_current_menu_index = 0;
+            UI_UpdateUnpairMenuPositions();
+            break;
+
+        case MENU_BABY_UNIT_WAS_UNPAIRED:
+            g_current_menu_level = 5;
+            g_current_menu_index = 1; // UNPAIR BABY UNIT
+            UI_UpdatePairUnitsMenuPositions();
+            g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIRING_INFO: {
+            g_current_menu_level = 5; // Back to PAIR UNITS
+            uint8_t connected_count = 0;
+            for (uint8_t i = 0; i < 3; i++) {
+                if (ubTRX_GetLinkStatus(i)) connected_count++;
+            }
+            if (connected_count == 0) {
+                g_current_menu_index = 1;
+            } else if (connected_count == 1 || connected_count == 2) {
+                g_current_menu_index = 2;
+            } else { // connected_count == 3
+                g_current_menu_index = 1;
+            }
+            g_rectangle_y = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+        }
+
+        case MENU_ABOUT_PAIRING:
+            g_current_menu_level = MENU_PAIRING_INFO;
+            g_current_menu_index = 0;
+            g_rectangle_y        = PAIRINGINFO_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_COMPATIBLE_UNITS:
+            g_current_menu_level = MENU_PAIRING_INFO;
+            g_current_menu_index = 1;
+            g_rectangle_y        = PAIRINGINFO_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_PAIRING_WITH_N65:
+            g_current_menu_level = MENU_COMPATIBLE_UNITS;
+            g_current_menu_index = 0;
+            g_rectangle_y        = COMPATIBLEUNITS_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_ABOUT_THIS_MODEL:
+            g_current_menu_level = 6;
+            g_current_menu_index = 0;
+            g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_FEATURES:
+            g_current_menu_level = 6;
+            g_current_menu_index = 1;
+            g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_CONTACT_INFORMATION:
+            g_current_menu_level = 6;
+            g_current_menu_index = 2;
+            g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_RANGE_AND_TRANSMISSION:
+            g_current_menu_level = MENU_FEATURES;
+            g_current_menu_index = 0;
+            g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_BATTERY:
+            g_current_menu_level = MENU_FEATURES;
+            g_current_menu_index = 1;
+            g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        case MENU_SPECIAL_FEATURES:
+            g_current_menu_level = MENU_FEATURES;
+            g_current_menu_index = 2;
+            g_rectangle_y        = FEATURES_MENU_Y_POS[g_current_menu_index];
+            break;
+
+        default:
+            if (g_current_menu_level > 0) {
+                uint8_t previous_menu = g_current_menu_level;
+                g_current_menu_level  = 0;
+
+                if (previous_menu >= 1 && previous_menu <= 6) {
+                    g_current_menu_index = previous_menu - 1;
+                    g_rectangle_x        = 40;
+                    g_rectangle_y        = MAIN_MENU_Y_POS[g_current_menu_index];
+                } else {
+                    g_current_menu_index = 0;
+                    g_rectangle_y        = MAIN_MENU_Y_POS[0];
+                }
+            } else {
+                g_is_menu_visible = 0;
+            }
+            break;
+    }
     UI_RefreshScreen();
 }
 //------------------------------------------------------------------------------
@@ -4837,103 +4935,147 @@ void UI_RefreshScreen(void)
     osDelay(1);
 
     if (g_is_menu_visible == 1) {
-        if (g_current_menu_level == 0) {
-            UI_ShowMenu();
-        } else if (g_current_menu_level == 1) {
-            UI_ShowKeyLock();
-        } else if (g_current_menu_level == 2) {
-            UI_ShowZoom();
-        } else if (g_current_menu_level == 3) {
-            UI_ShowLanguage();
-        } else if (g_current_menu_level == 4) {
-            UI_ShowSetting();
-        } else if (g_current_menu_level == 5) {
-            UI_ShowPairUnits();
-        } else if (g_current_menu_level == 6) {
-            UI_Info();
-        } else if (g_current_menu_level == MENU_LEVEL_SLEEP_TIMER) {
-            UI_ShowSleepTimer();
-        } else if (g_current_menu_level == MENU_MICROPHONE_SENSITIVITY) {
-            UI_ShowMicroSensitivity();
-        } else if (g_current_menu_level == MENU_DISPLAYSETTINGS) {
-            DisplaySettings();
-        } else if (g_current_menu_level == MENU_ADVANCEDDISPLAYSETTINGS) {
-            AdvancedDisplaySettings();
-        } else if (g_current_menu_level == MENU_BABYUNITSETTINGS) {
-            UI_ShowBabyUnitSettings();
-        } else if (g_current_menu_level == MENU_BABYUNITDETAIL) {
-            UI_ShowBabyUnitDetail(g_selected_bu_index);
-        } else if (g_current_menu_level == MENU_CHANGE_NAME) {
-            UI_ShowChangeName();
-        } else if (g_current_menu_level == MENU_CHANGE_PRIORITY_MAIN) {
-            UI_ShowChangePriorityMain();
-        } else if (g_current_menu_level == MENU_CHANGE_PRIORITY_PICK) {
-            UI_ShowChangePriorityPick();
-        } else if (g_current_menu_level == MENU_LEVEL_TEMP_ALARM) {
-            TemperatureAlarm();
-        } else if (g_current_menu_level == MENU_LEVEL_SET_TEMP_HIGH) {
-            osDelay(1);
-            UI_ShowSetLimitHigh();
-        } else if (g_current_menu_level == MENU_LEVEL_SET_TEMP_LOW) {
-            osDelay(1);
-            UI_ShowSetLimitLow();
-        } else if (g_current_menu_level == MENU_PAIR_NEW_BABY_UNIT) {
-            UI_PairNewBabyUnit();
-        } else if (g_current_menu_level == MENU_ABOUT_THIS_MODEL) {
-            UI_AboutThisModel();
-        } else if (g_current_menu_level == MENU_CONTACT_INFORMATION) {
-            UI_ContactInformation();
-        } else if (g_current_menu_level == MENU_FEATURES) {
-            UI_Features();
-        } else if (g_current_menu_level == MENU_RANGE_AND_TRANSMISSION) {
-            UI_RangeAndTransmission();
-        } else if (g_current_menu_level == MENU_BATTERY) {
-            UI_Battery();
-        } else if (g_current_menu_level == MENU_SPECIAL_FEATURES) {
-            UI_SpecialFeatures();
-        } else if (g_current_menu_level == MENU_PAIRING_INFO) {
-            UI_PairInfo();
-        } else if (g_current_menu_level == MENU_ABOUT_PAIRING) {
-            UI_AboutPairing();
-        } else if (g_current_menu_level == MENU_COMPATIBLE_UNITS) {
-            UI_CompatibleUnits();
-        } else if (g_current_menu_level == MENU_PAIRING_WITH_N65) {
-            UI_PairingWithN65();
-        } else if (g_current_menu_level == MENU_BABY_UNIT_INFO) {
-            UI_ShowBabyUnitInfo();
-        } else if (g_current_menu_level == MENU_SLEEP_HISTORY) {
-            UI_SleepHistoryMain();
-        } else if (g_current_menu_level == MENU_SLEEP_HISTORY_VIEW) {
-            UI_SleepHistoryView();
-        } else if (g_current_menu_level == MENU_SLEEP_HISTORY_OPTIONS) {
-            UI_SleepHistoryOptions();
-        } else if (g_current_menu_level == MENU_SLEEP_HISTORY_SELECT) {
-            UI_SleepHistorySelect();
-        } else if (g_current_menu_level == MENU_PAIR_MODE) {
-            UI_PairMode();
-        } else if (g_current_menu_level == MENU_PAIR_MODE_GUIDE) {
-            UI_PairModeGuide();
-        } else if (g_current_menu_level == MENU_PAIR_MODE_ONE) {
-            UI_PairModeGuide();
-        } else if (g_current_menu_level == MENU_PAIR_MODE_TWO) {
-            UI_PairModeGuide();
-        } else if (g_current_menu_level == MENU_PAIR_MODE_THREE) {
-            UI_PairModeGuide();
-        } else if (g_current_menu_level == MENU_PAIR_RUN) {
-            UI_ShowPairRun();
-        } else if (g_current_menu_level == MENU_PAIR_SUCCESS) {
-            UI_ShowPairSuccess();
-        } else if (g_current_menu_level == MENU_UNPAIR_UNITS) {
-            UI_ShowUnpairUnits();
-        } else if (g_current_menu_level == MENU_UNPAIR_BABY_UNIT) {
-            UI_ShowUnpairBabyUnit();
-        } else if (g_current_menu_level == MENU_BABY_UNIT_WAS_UNPAIRED) {
-            UI_ShowBabyUnitWasUnpaired();
-        }else if (g_current_menu_level == MENU_SLEEP_HISTORY_DELETED) {
-            UI_SleepHistoryDeleted();
+        switch (g_current_menu_level) {
+            case 0:
+                UI_ShowMenu();
+                break;
+            case 1:
+                UI_ShowKeyLock();
+                break;
+            case 2:
+                UI_ShowZoom();
+                break;
+            case 3:
+                UI_ShowLanguage();
+                break;
+            case 4:
+                UI_ShowSetting();
+                break;
+            case 5:
+                UI_ShowPairUnits();
+                break;
+            case 6:
+                UI_Info();
+                break;
+            case MENU_LEVEL_SLEEP_TIMER:
+                UI_ShowSleepTimer();
+                break;
+            case MENU_MICROPHONE_SENSITIVITY:
+                UI_ShowMicroSensitivity();
+                break;
+            case MENU_DISPLAYSETTINGS:
+                DisplaySettings();
+                break;
+            case MENU_ADVANCEDDISPLAYSETTINGS:
+                AdvancedDisplaySettings();
+                break;
+            case MENU_BABYUNITSETTINGS:
+                UI_ShowBabyUnitSettings();
+                break;
+            case MENU_BABYUNITDETAIL:
+                UI_ShowBabyUnitDetail(g_selected_bu_index);
+                break;
+            case MENU_CHANGE_NAME:
+                UI_ShowChangeName();
+                break;
+            case MENU_CHANGE_PRIORITY_MAIN:
+                UI_ShowChangePriorityMain();
+                break;
+            case MENU_CHANGE_PRIORITY_PICK:
+                UI_ShowChangePriorityPick();
+                break;
+            case MENU_LEVEL_TEMP_ALARM:
+                TemperatureAlarm();
+                break;
+            case MENU_LEVEL_SET_TEMP_HIGH:
+                osDelay(1);
+                UI_ShowSetLimitHigh();
+                break;
+            case MENU_LEVEL_SET_TEMP_LOW:
+                osDelay(1);
+                UI_ShowSetLimitLow();
+                break;
+            case MENU_PAIR_NEW_BABY_UNIT:
+                UI_PairNewBabyUnit();
+                break;
+            case MENU_ABOUT_THIS_MODEL:
+                UI_AboutThisModel();
+                break;
+            case MENU_CONTACT_INFORMATION:
+                UI_ContactInformation();
+                break;
+            case MENU_FEATURES:
+                UI_Features();
+                break;
+            case MENU_RANGE_AND_TRANSMISSION:
+                UI_RangeAndTransmission();
+                break;
+            case MENU_BATTERY:
+                UI_Battery();
+                break;
+            case MENU_SPECIAL_FEATURES:
+                UI_SpecialFeatures();
+                break;
+            case MENU_PAIRING_INFO:
+                UI_PairInfo();
+                break;
+            case MENU_ABOUT_PAIRING:
+                UI_AboutPairing();
+                break;
+            case MENU_COMPATIBLE_UNITS:
+                UI_CompatibleUnits();
+                break;
+            case MENU_PAIRING_WITH_N65:
+                UI_PairingWithN65();
+                break;
+            case MENU_BABY_UNIT_INFO:
+                UI_ShowBabyUnitInfo();
+                break;
+            case MENU_SLEEP_HISTORY:
+                UI_SleepHistoryMain();
+                break;
+            case MENU_SLEEP_HISTORY_VIEW:
+                UI_SleepHistoryView();
+                break;
+            case MENU_SLEEP_HISTORY_OPTIONS:
+                UI_SleepHistoryOptions();
+                break;
+            case MENU_SLEEP_HISTORY_SELECT:
+                UI_SleepHistorySelect();
+                break;
+            case MENU_PAIR_MODE:
+                UI_PairMode();
+                break;
+            case MENU_PAIR_MODE_GUIDE:
+            case MENU_PAIR_MODE_ONE:
+            case MENU_PAIR_MODE_TWO:
+            case MENU_PAIR_MODE_THREE:
+                UI_PairModeGuide();
+                break;
+            case MENU_PAIR_RUN:
+                UI_ShowPairRun();
+                break;
+            case MENU_PAIR_SUCCESS:
+                UI_ShowPairSuccess();
+                break;
+            case MENU_UNPAIR_UNITS:
+                UI_ShowUnpairUnits();
+                break;
+            case MENU_UNPAIR_BABY_UNIT:
+                UI_ShowUnpairBabyUnit();
+                break;
+            case MENU_BABY_UNIT_WAS_UNPAIRED:
+                UI_ShowBabyUnitWasUnpaired();
+                break;
+            case MENU_SLEEP_HISTORY_DELETED:
+                UI_SleepHistoryDeleted();
+                break;
+            default:
+                break;
         }
     }
 
     OSD_IMG_INFO tFakeInfo = {0};
     tOSD_Img2(&tFakeInfo, OSD_UPDATE);
 }
+
