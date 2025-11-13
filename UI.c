@@ -127,6 +127,7 @@ uint8_t g_is_menu_visible           = 0;   // 0 not visible    static
 static uint8_t g_current_menu_level = 0;   // 0 mainmenu, 1,2,3 submenu
 static uint8_t g_current_menu_index = 0;   // menu index
 bool g_is_key_locked = false;							 // keyboard lock
+static uint32_t g_last_key_press_ms = 0;	 // keylock timer
 // Menu(Level 0)
 const uint16_t MAIN_MENU_Y_POS[]   = {110, 150, 190, 230, 270, 310, 350};
 const uint8_t MAIN_MENU_ITEM_COUNT = sizeof(MAIN_MENU_Y_POS) / sizeof(uint16_t);
@@ -217,7 +218,7 @@ const Point LANGUAGE_MENU_POS[] = {
 };
 const uint8_t LANGUAGE_MENU_ITEM_COUNT = sizeof(LANGUAGE_MENU_POS) / sizeof(Point);
 
-// static uint8_t g_edit_mode = 0;  	0: navigation, 1: edit ±à¼­Ä£Ê½ÔÝ²»ÆôÓÃ
+// static uint8_t g_edit_mode = 0;  	0: navigation, 1: edit ±à¼­Ä£Ê½²»ÆôÓÃ
 
 // sleeptimer
 static uint8_t s_prev_connected_count          = 0xFF;
@@ -291,6 +292,7 @@ void UI_PlugIn(void)
     UI_UpdateBacklight(); //±³¹â³õÊ¼×´Ì¬¿ªÆô
     tOSD_Init(OSD_WEIGHT_8DIV8, uwLCD_GetLcdHoSize(), uwLCD_GetLcdVoSize(), 0, 0, OSD_SCALE_1X, OSD_SCALE_1X);
     UI_OnInitDialog();
+		UI_ResetAutoLockTimer();//³õÊ¼»¯¼üÅÌËø¼ÆÊýÆ÷
 #endif
     osThreadDef(UI_Thread, UI_Thread, THREAD_PRIO_UI_HANDLER, 1, THREAD_STACK_UI_HANDLER);
     osUI_ThreadId = osThreadCreate(osThread(UI_Thread), NULL);
@@ -306,12 +308,6 @@ uint8_t demo_engmode  = 0;
 void UI_ShowMenuKey(void)
 {
     g_is_menu_visible = !g_is_menu_visible;
-    /*
-if (g_is_menu_visible) {
-    g_rectangle_x = 40;
-    g_rectangle_y = 110;
-}
-    */
     UI_RefreshScreen();
 }
 //------------------------------------------------------------------------------
@@ -404,6 +400,11 @@ void UI_ShowKeyLock(void)
     UI_Drawbox();
 }
 //------------------------------------------------------------------------------
+void UI_ResetAutoLockTimer(void)
+{
+    g_last_key_press_ms = KNL_TIMER_Get1ms(); 
+}
+//------------------------------------------------------------------------------
 void UI_KeyLockActivate(void)
 {
 		g_is_key_locked = true;
@@ -438,11 +439,11 @@ void UI_ShowZoom(void)
         tOsdImgInfoLine2.uwYStart = 125;
         tOSD_Img2(&tOsdImgInfoLine2, OSD_QUEUE);
 
-        UI_DrawString("EXIT", 52, 138);
+        UI_DrawString("EXIT", 52, 146);
 				g_rectangle_x       = 40;
-				g_rectangle_y       = 130;
+				g_rectangle_y       = 138;
         UI_Drawbox();
-
+				g_current_menu_index = 1;
         return;
     }
     OSD_IMG_INFO tOsdImgInfo;
@@ -888,6 +889,7 @@ void UI_PairNewBabyUnit(void)
 
     UI_Drawbox();
 }
+
 void UI_PairMode(void)
 {
     MenuBackground();
@@ -974,68 +976,7 @@ void UI_PairModeGuide(void)
 
     UI_Drawbox();
 }
-/*
-void UI_ShowPairWizard(uint8_t cnt)
-{
-    MenuBackground();
-    UI_DrawString("PAIR UNITS", 225, 52);
 
-    OSD_IMG_INFO ln;
-    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
-    tOSD_Img2(&ln, OSD_QUEUE);
-
-    uint16_t y = 90;
-    UI_DrawString("STATUS:", 52, y);
-    y += 25;
-    if (cnt >= 1) {
-        UI_DrawString23("BABY UNIT 1 : STAND-BY", 52, y);
-        y += 25;
-    }
-    if (cnt >= 2) {
-        UI_DrawString23("BABY UNIT 2 : STAND-BY", 52, y);
-        y += 25;
-    }
-    if (cnt >= 3) {
-        UI_DrawString23("BABY UNIT 3 : STAND-BY", 52, y);
-        y += 25;
-    }
-
-    tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &ln);
-    ln.uwYStart = y + 5;
-    tOSD_Img2(&ln, OSD_QUEUE);
-
-    uint16_t sy = y + 20;
-
-    // 1
-    UI_DrawString("1", 52, sy);
-    if (cnt == 1) {
-        UI_DrawString23("PRESS THE PAIR BUTTON ON THE BABY UNIT.", 72, sy);
-    } else {
-        UI_DrawString23("PRESS THE PAIR BUTTON ON THE BABY UNIT", 72, sy);
-        sy += 25;
-        UI_DrawString23("YOU WANT TO GIVE THE HIGHEST PRIORITY.", 72, sy);
-    }
-    sy += 30;
-
-    if (cnt >= 2) {
-        UI_DrawString("2", 52, sy);
-        UI_DrawString23("PRESS THE PAIR BUTTON ON THE BABY UNIT", 72, sy);
-        sy += 25;
-        UI_DrawString23("YOU WANT TO GIVE PRIORITY 2.", 72, sy);
-        sy += 30;
-    }
-    if (cnt >= 3) {
-        UI_DrawString("3", 52, sy);
-        UI_DrawString23("PRESS THE PAIR BUTTON ON THE BABY UNIT", 72, sy);
-        sy += 25;
-        UI_DrawString23("YOU WANT TO GIVE PRIORITY 3.", 72, sy);
-        sy += 30;
-    }
-
-		OSD_IMG_INFO tFakeInfo = {0};
-    tOSD_Img2(&tFakeInfo, OSD_UPDATE);
-}
-*/
 void UI_ShowPairRun(void)
 {
     MenuBackground();
@@ -1386,6 +1327,7 @@ void UI_AboutThisModel(void)
 
     UI_Drawbox();
 }
+
 void UI_ContactInformation(void)
 {
     MenuBackground();
@@ -2414,10 +2356,6 @@ void UI_UpdateBacklight(void)
     tUI_PuSetting.ubLcdBrightness = brightness;
     LCD_BACKLIGHT_CTRL(g_uiBacklightLevels[brightness - 1]);
 }
-
-void UI_TimerShow(void)
-{
-}
 //------------------------------------------------------------------------------
 void UI_InitEditNameBuffer(uint8_t unit_index)
 {
@@ -2436,6 +2374,9 @@ static void UI_Thread(void const *argument)
 {
     static uint16_t uwUI_TaskCnt         = 0;
     static uint32_t lastStatusUpdateTime = 0;
+	
+		static uint32_t lastAutoLockCheckTime = 0; //¼üÅÌËø¼ÆÊ±±äÁ¿
+	
     printf(">>> UI_Thread has started! <<<\n");
     while (1) {
         if ((KNL_TIMER_Get1ms() - lastStatusUpdateTime) >= 1000) {
@@ -2444,6 +2385,32 @@ static void UI_Thread(void const *argument)
                 UI_UpdateStatus(&uwUI_TaskCnt);
             }
         }
+				
+		uint32_t current_ms = KNL_TIMER_Get1ms();
+        if ((current_ms - lastAutoLockCheckTime) >= 1000) 
+        {
+            lastAutoLockCheckTime = current_ms;
+
+            if (!g_is_key_locked && !g_is_menu_visible && tUI_PuSetting.ubKeyLockAutoActivate != 0)
+            {
+                uint32_t idle_duration_ms = current_ms - g_last_key_press_ms;
+                uint32_t lock_delay_ms = 0;
+
+                if (tUI_PuSetting.ubKeyLockAutoActivate == 1) // 1 = "AFTER 10 SEC"
+                {
+                    lock_delay_ms = 10000; // 10
+                }
+                else if (tUI_PuSetting.ubKeyLockAutoActivate == 2) // 2 = "AFTER 30 SEC"
+                {
+                    lock_delay_ms = 30000; // 30
+                }
+
+                if (lock_delay_ms > 0 && idle_duration_ms >= lock_delay_ms)
+                {
+                    UI_KeyLockActivate(); // ¼üÅÌËøÊ±¼äµ½
+                }
+            }
+        }				
 // UI_UpdateStatus(&uwUI_TaskCnt);		refresh
 #ifdef VBM_PU
         // printf("UI_Thread:  AntLvl[%d]\n", ulKNL_GetFps(KNL_BB_FRM_OK, KNL_SRC_1_MAIN));
@@ -3047,7 +3014,7 @@ void UI_Drawbox(void)
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
     vertical_line_info.uwXStart = g_rectangle_x + horizontal_width - vertical_line_info.uwHSize;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE);
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_Drawhalfbox(void)
@@ -3082,7 +3049,7 @@ void UI_Drawhalfbox(void)
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
     vertical_line_info.uwXStart = g_rectangle_x + half_horizontal_width - vertical_line_info.uwHSize;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE);
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_Drawbox40(void)
@@ -3118,7 +3085,7 @@ void UI_Drawbox40(void)
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
     vertical_line_info.uwXStart = g_rectangle_x + BOX_WIDTH - vertical_thickness;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE);
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_Drawbox140(void)
@@ -3153,7 +3120,7 @@ void UI_Drawbox140(void)
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
     vertical_line_info.uwXStart = g_rectangle_x + box_width - vertical_line_info.uwHSize;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE);
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_Drawbox104(void)
@@ -3188,7 +3155,7 @@ void UI_Drawbox104(void)
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
     vertical_line_info.uwXStart = g_rectangle_x + box_width - vertical_line_info.uwHSize;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE);
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_Drawbox341(void)
@@ -3196,11 +3163,9 @@ void UI_Drawbox341(void)
     OSD_IMG_INFO horizontal_line_info;
     OSD_IMG_INFO vertical_line_info;
 
-    // --- Define the target dimensions for the new box ---
     const uint16_t target_width  = 341;
     const uint16_t target_height = 40;
 
-    // Fetch the image info for the line assets
     if (tOSD_GetOsdImgInfor(1, OSD_IMG2, OSD2IMG_OSD2HORIZONTALLINE, 1, &horizontal_line_info) != OSD_OK) {
         printf("Error: Failed to get horizontal line image info.\n");
         return;
@@ -3209,33 +3174,26 @@ void UI_Drawbox341(void)
         printf("Error: Failed to get vertical line image info.\n");
         return;
     }
-    // --- Draw the four sides of the box with the new dimensions ---
 
-    // 1. Draw the TOP line
-    horizontal_line_info.uwHSize  = target_width; // Set the width to our target
+    horizontal_line_info.uwHSize  = target_width;
     horizontal_line_info.uwXStart = g_rectangle_x;
     horizontal_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    // 2. Draw the BOTTOM line
-    horizontal_line_info.uwHSize  = target_width; // Set the width again
+    horizontal_line_info.uwHSize  = target_width;
     horizontal_line_info.uwXStart = g_rectangle_x;
-    // Position it at the bottom edge
     horizontal_line_info.uwYStart = g_rectangle_y + target_height - horizontal_line_info.uwVSize;
     tOSD_Img2(&horizontal_line_info, OSD_QUEUE);
 
-    // 3. Draw the LEFT line
-    vertical_line_info.uwVSize  = target_height; // Set the height to our target
+    vertical_line_info.uwVSize  = target_height;
     vertical_line_info.uwXStart = g_rectangle_x;
     vertical_line_info.uwYStart = g_rectangle_y;
     tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 
-    // 4. Draw the RIGHT line and trigger the screen update
-    vertical_line_info.uwVSize = target_height; // Set the height again
-    // Position it at the right edge
+    vertical_line_info.uwVSize = target_height;
     vertical_line_info.uwXStart = g_rectangle_x + target_width - vertical_line_info.uwHSize;
     vertical_line_info.uwYStart = g_rectangle_y;
-    tOSD_Img2(&vertical_line_info, OSD_UPDATE); // Use OSD_UPDATE on the last call
+    tOSD_Img2(&vertical_line_info, OSD_QUEUE);
 }
 //------------------------------------------------------------------------------
 void UI_DrawWhiteSquare(uint16_t x, uint16_t y)
@@ -3357,7 +3315,7 @@ void MoveboxDown(void)
             g_rectangle_y        = PAIRUNITS_MENU_Y_POS[g_current_menu_index];
             break;
 
-        case 6:
+        case 6: //info
             g_current_menu_index = (g_current_menu_index + 1) % INFO_MENU_ITEM_COUNT;
             g_rectangle_y        = INFO_MENU_Y_POS[g_current_menu_index];
             break;
@@ -3724,7 +3682,7 @@ void EnterKeyHandler(void)
         case 1: // KeyLock
             switch (g_current_menu_index) {
                 case 0: // ACTIVATE KEY LOCK
-                    // TODO Í£Ö¹°´¼üÊ¹ÓÃ
+										UI_KeyLockActivate();
                     break;
 
                 case 1: // AUTO ACTIVATE
@@ -3880,7 +3838,7 @@ void EnterKeyHandler(void)
         {
             uint8_t connected_count = 0;
             for (uint8_t i = 0; i < 3; i++) {
-                if (ubTRX_GetLinkStatus(i)) // g_baby_units[i].is_connected
+                if (ubTRX_GetLinkStatus(i))		//¼ì²éÓÐ¼¸¸öBUÁ¬½Ó
                 {
                     connected_count++;
                 }
@@ -3907,7 +3865,7 @@ void EnterKeyHandler(void)
             } else if (connected_count == 1 || connected_count == 2) {
                 switch (g_current_menu_index) {
                     case 0: /* connect new baby unit */
-                        UI_UpdatePairUnitsMenuPositions();
+                        UI_UpdatePairUnitsMenuPositions();		//¸ù¾ÝÁ¬½ÓµÄBUÊýÁ¿²»Í¬À´ÖØÐÂÉèÖÃ²Ëµ¥ÖÐÑ¡ÏîµÄÎ»ÖÃ
                         g_current_menu_level = MENU_PAIR_NEW_BABY_UNIT;
                         g_current_menu_index = 0;
                         g_rectangle_x        = 40;
@@ -4501,7 +4459,6 @@ void EnterKeyHandler(void)
                 memset(g_pair_status, 0, sizeof(g_pair_status));
                 g_pair_done = 0;
 
-                // TODO: go into pair mode
                 // PAIR_EnterPairMode(g_pair_needed);
 								UI_RequestPairingStart(g_pair_needed);
                 g_current_menu_level = MENU_PAIR_RUN;
