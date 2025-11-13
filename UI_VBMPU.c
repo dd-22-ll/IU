@@ -34,9 +34,9 @@
 
 const OSD_WEIGHT_TYP transparency_levels[] = {
     OSD_WEIGHT_8DIV8, // 0%
-    OSD_WEIGHT_6DIV8, // ~25%
-    OSD_WEIGHT_5DIV8, // ~37%
-    OSD_WEIGHT_3DIV8  // ~62%
+    OSD_WEIGHT_6DIV8, // 25%
+    OSD_WEIGHT_5DIV8, // 37%
+    OSD_WEIGHT_3DIV8  // 62%
 };
 
 #if defined(__CC_ARM) || defined(__ARMCC_VERSION) || defined(__ICCARM__)
@@ -68,21 +68,20 @@ extern void ISP_SetMirrorFlip(uint8_t ubMirror, uint8_t ubFlip) UI_WEAK;
 const UI_KeyEventMap_t UiKeyEventMap[] =
 {
 	{NULL,					0,			NULL,						NULL},
-	{AKEY_MENU, 		25,			UI_MenuKey, 					BUZ_PlaySingleSound},
+	//{AKEY_MENU, 		25,			UI_MenuKey, 					BUZ_PlaySingleSound},
 	//{AKEY_MENU, 		0,			UI_EngModeKey,			BUZ_PlaySingleSound},				//UI_LeftArrowKey(menu)		//UI_CameraSettingMenu1Key
-	{AKEY_MENU, 		0,			UI_ShowSleepTimer,			BUZ_PlaySingleSound},
-	{AKEY_LEFT, 		0,			UI_ShowMenuKey,			BUZ_PlaySingleSound},
 	//{AKEY_LEFT, 		30,			UI_LeftArrowLongKey,		BUZ_PlaySingleSound},
 	//{AKEY_LEFT, 		20,			UI_EngModeKey,				BUZ_PlaySingleSound},
 
-
+	{AKEY_LEFT, 		0,			UI_ShowMenuKey,			BUZ_PlaySingleSound},
 	{AKEY_ENTER, 		0,			EnterKeyHandler,				BUZ_PlaySingleSound},
 	{AKEY_UP, 			0,			MoveboxUp,				BUZ_PlaySingleSound},
-	{AKEY_UP, 			30,			UI_FwUpgViaSdCard,   		NULL},
 	{AKEY_DOWN, 		0,			MoveboxDown,			BUZ_PlaySingleSound},
-	
+	{AKEY_MENU, 		0,			MenuExitHandler, 					BUZ_PlaySingleSound},
+
 //	{AKEY_LEFT, 		0,			UI_LeftArrowKey,			BUZ_PlaySingleSound},
 //	{AKEY_LEFT, 		30,			UI_LeftArrowLongKey,		BUZ_PlaySingleSound},
+	{AKEY_UP, 			30,			UI_FwUpgViaSdCard,   		NULL},	
 	{AKEY_RIGHT, 		0,			UI_RightArrowKey,			BUZ_PlaySingleSound},
 	{AKEY_RIGHT, 		30,			UI_EnPerDebugMode,			BUZ_PlaySingleSound},
 	
@@ -101,8 +100,7 @@ const UI_KeyEventMap_t UiKeyEventMap[] =
 UI_State_t tUI_State;
 static APP_State_t tUI_SyncAppState;
 UI_BUStatus_t tUI_CamStatus[CAM_4T];
-//static UI_PUSetting_t tUI_PuSetting;  //original
-UI_PUSetting_t tUI_PuSetting;
+UI_PUSetting_t tUI_PuSetting;    //original static UI_PUSetting_t tUI_PuSetting;
 
 const static UI_MenuFuncPtr_t tUI_StateMap2MenuFunc[UI_STATE_MAX] =
 {
@@ -238,15 +236,23 @@ UI_DevDrvStsInfo_t tUI_DrvStsInfo;
 //------------------------------------------------------------------------------
 void UI_KeyEventExec(void *pvKeyEvent)
 {
+	KEY_Event_t *ptKeyEvent = (KEY_Event_t *)pvKeyEvent;
+	if (g_is_key_locked)
+  {
+    if (ptKeyEvent->ubKeyID == AKEY_UP || ptKeyEvent->ubKeyID == AKEY_ENTER)
+    {
+        g_is_key_locked = false;
+    }
+    return;
+  }
+	UI_ResetAutoLockTimer();
 	static uint8_t ubUI_KeyEventIdx = 0;
-	KEY_Event_t *ptKeyEvent;
 	uint16_t uwUiKeyEvent_Cnt = 0, uwIdx;
 #ifdef S2019A
 	sPRF_DrvMode_t tCurDrvMd = sPRF_TRX_MODE;
 
 	tCurDrvMd = tsPRF_GetDrvMode();
 #endif
-	ptKeyEvent = (KEY_Event_t *)pvKeyEvent;
 	uwUiKeyEvent_Cnt = sizeof UiKeyEventMap / sizeof(UI_KeyEventMap_t);
 	if(ptKeyEvent->ubKeyAction == KEY_UP_ACT)
 	{
@@ -392,10 +398,10 @@ void UI_OnInitDialog(void)
 #endif
 	OSD_LogoJpeg(ulUI_LogoIndex);
 	OSD_IMG_INFO tOsdImgInfo;	  //Logo Image
-	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);//
-  tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);//
+	tOSD_GetOsdImgInfor(1, OSD_IMG1, OSD1IMG_SUBMENU, 1, &tOsdImgInfo);
+  tOSD_Img1(&tOsdImgInfo, OSD_UPDATE);
 	osDelay(3000);//
-	OSD_EraserImg1(&tOsdImgInfo);//
+	OSD_EraserImg1(&tOsdImgInfo);
 	GPIO->GPIO_O0 	= 0;
 	GPIO->GPIO_O13 	= 0;
 	BUZ_PlayPowerOnSound();
@@ -7848,7 +7854,7 @@ void UI_ResetDevSetting(UI_CamNum_t tCamNum)
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tREC_Resolution, 	RECRES_HD);
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tPHOTO_Func, 		PHOTOFUNC_OFF);
 	UI_CLEAR_CAMSETTINGTODEFU(tUI_CamStatus[tCamNum].tPHOTO_Resolution, PHOTORES_3M);
-	//zhu
+
 	tUI_CamStatus[tCamNum].sleep_time_ms = 0;
   tUI_CamStatus[tCamNum].priority      = tCamNum;
 	tUI_CamStatus[tCamNum].active      = 0;
@@ -8035,7 +8041,7 @@ void UI_LoadDevStatusInfo(void)
 				tUI_CamStatus[tCamNum].ulCAM_ID = INVALID_ID;
 			UI_ResetDevSetting(tCamNum);
 			/*
-			sprintf(tUI_CamStatus[tCamNum].name, "BABY UNIT %d", tCamNum + 1); //zhu
+			sprintf(tUI_CamStatus[tCamNum].name, "BABY UNIT %d", tCamNum + 1);
 			tUI_CamStatus[tCamNum].ubMicroSensitivity = 3;
 			tUI_CamStatus[tCamNum].sleep_time_ms = 0;
 			tUI_CamStatus[tCamNum].priority = tCamNum;*/
@@ -8067,11 +8073,11 @@ void UI_UpdateDevStatusInfo(void)
 	memcpy(tUI_DevStsInfo.cbUI_FwVersion, SN937XX_FW_VERSION, sizeof(tUI_DevStsInfo.cbUI_FwVersion) - 1);
 	memcpy(tUI_DevStsInfo.tBU_StatusInfo, tUI_CamStatus, (CAM_4T * sizeof(UI_BUStatus_t)));
 	memcpy(&tUI_DevStsInfo.tPU_SettingInfo, &tUI_PuSetting, sizeof(UI_PUSetting_t));
-	printf("\n--- SAVING TO FLASH ---\n");//zhu
-    printf("Tag to be saved: [%s]\n", tUI_DevStsInfo.cbUI_DevStsTag);
-    printf("Version to be saved: [%s]\n", tUI_DevStsInfo.cbUI_FwVersion);
-    printf("Vibration to be saved: %d\n", tUI_DevStsInfo.tPU_SettingInfo.ubVibration);
-    printf("-----------------------\n\n");
+	printf("\n--- SAVING TO FLASH ---\n");
+  printf("Tag to be saved: [%s]\n", tUI_DevStsInfo.cbUI_DevStsTag);
+  printf("Version to be saved: [%s]\n", tUI_DevStsInfo.cbUI_FwVersion);
+  printf("Vibration to be saved: %d\n", tUI_DevStsInfo.tPU_SettingInfo.ubVibration);
+  printf("-----------------------\n\n");
 	SF_DisableWrProtect();
 	SF_Erase(SF_SE, ulUI_SFAddr, pSF_Info->ulSecSize, 1);
 	SF_Write(ulUI_SFAddr, sizeof(UI_DeviceStatusInfo_t), (uint8_t *)&tUI_DevStsInfo);
@@ -8948,7 +8954,7 @@ void UI_OsdDisplayFpsFunc(uint8_t ubCamNum, uint16_t uwFps, uint16_t uwXPos, uin
 
 	if(UI_DISPLAY_STATE != tUI_State)
 	{
-		memset(ubFps, 0xFF, sizeof(ubFps));	
+		memset(ubFps, 0xFF, sizeof(ubFps));
 		return;
 	}
 	osMutexWait(osUI_PerDbgMutex, osWaitForever);
